@@ -15,7 +15,7 @@ class AdminMiddleware
      */
     public function handle(Request $request, Closure $next): Response
     {
-        user = $request->user();
+        $user = $request->user();
 
         if (!$user || !$user->admin) {
             abort(403, "Admin access only.");

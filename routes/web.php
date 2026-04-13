@@ -24,7 +24,7 @@ Route::middleware(["auth", "admin"])
     ->group(function () {
         Route::get(
             "/dashboard",
-            fn() => Inertia\Inertia::render("Admin/Dashboard"),
+            fn() => Inertia::render("Admin/Dashboard"),
         )->name("dashboard");
 
         Route::resource(

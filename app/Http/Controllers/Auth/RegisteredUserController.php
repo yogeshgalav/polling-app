@@ -22,7 +22,7 @@ class RegisteredUserController extends Controller
      */
     public function create(): Response
     {
-        return Inertia::render('Auth/Register');
+        return Inertia::render("Auth/Register");
     }
 
     /**
@@ -33,19 +33,20 @@ class RegisteredUserController extends Controller
     public function store(Request $request): RedirectResponse
     {
         $request->validate([
-            'name' => 'required|string|max:255',
-            'email' => 'required|string|lowercase|email|max:255|unique:'.User::class,
-            'password' => ['required', 'confirmed', Rules\Password::defaults()],
-            'is_admin' => ['nullable', 'boolean'],
+            "name" => "required|string|max:255",
+            "email" =>
+                "required|string|lowercase|email|max:255|unique:" . User::class,
+            "password" => ["required", "confirmed", Rules\Password::defaults()],
+            "is_admin" => ["nullable", "boolean"],
         ]);
 
-        $isAdmin = $request->boolean('is_admin');
+        $isAdmin = $request->boolean("is_admin");
 
         $user = DB::transaction(function () use ($request, $isAdmin) {
             $user = User::create([
-                'name' => $request->name,
-                'email' => $request->email,
-                'password' => Hash::make($request->password),
+                "name" => $request->name,
+                "email" => $request->email,
+                "password" => Hash::make($request->password),
             ]);
 
             if ($isAdmin) {
@@ -59,8 +60,8 @@ class RegisteredUserController extends Controller
 
         Auth::login($user);
 
-        return redirect($user->isAdmin()
-            ? route('admin.dashboard', absolute: false)
-            : route('dashboard', absolute: false));
+        return redirect(
+            $user->isAdmin() ? route("admin.dashboard") : route("dashboard"),
+        );
     }
 }
