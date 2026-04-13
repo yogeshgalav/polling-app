@@ -17,7 +17,7 @@ class AdminMiddleware
     {
         $user = $request->user();
 
-        if (!$user || !$user->admin) {
+        if (!$user || !$user->isAdmin()) {
             abort(403, "Admin access only.");
         }
 

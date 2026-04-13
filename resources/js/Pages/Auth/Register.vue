@@ -96,11 +96,13 @@ const submit = () => {
             <div class="mt-4 flex items-center">
                 <input
                     id="is_admin"
+                    name="is_admin"
                     type="checkbox"
+                    value="1"
                     class="rounded border-gray-300 text-indigo-600 shadow-sm focus:ring-indigo-500"
                     v-model="form.is_admin"
                 />
-                <InputLabel for="is_admin" value="Register as admin" class="ms-2" />
+                <InputLabel for="is_admin" value="Register as Admin" class="ms-2" />
             </div>
 
             <div class="mt-4 flex items-center justify-end">
