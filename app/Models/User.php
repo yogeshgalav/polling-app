@@ -38,4 +38,14 @@ class User extends Authenticatable
             "password" => "hashed",
         ];
     }
+
+    public function admin()
+    {
+        return $this->hasOne(Admin::class);
+    }
+
+    public function isAdmin(): bool
+    {
+        return $this->admin()->exists();
+    }
 }

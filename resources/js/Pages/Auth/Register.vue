@@ -11,6 +11,7 @@ const form = useForm({
     email: '',
     password: '',
     password_confirmation: '',
+    is_admin: false,
 });
 
 const submit = () => {
@@ -90,6 +91,16 @@ const submit = () => {
                     class="mt-2"
                     :message="form.errors.password_confirmation"
                 />
+            </div>
+
+            <div class="mt-4 flex items-center">
+                <input
+                    id="is_admin"
+                    type="checkbox"
+                    class="rounded border-gray-300 text-indigo-600 shadow-sm focus:ring-indigo-500"
+                    v-model="form.is_admin"
+                />
+                <InputLabel for="is_admin" value="Register as admin" class="ms-2" />
             </div>
 
             <div class="mt-4 flex items-center justify-end">
