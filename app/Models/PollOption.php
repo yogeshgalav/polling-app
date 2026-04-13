@@ -8,4 +8,14 @@ class PollOption extends Model
 {
     //
     protected $fillable = ["label", "vote_count"];
+
+    public function poll()
+    {
+        return $this->belongsTo(Poll::class);
+    }
+
+    public function votes()
+    {
+        return $this->hasMany(Vote::class);
+    }
 }
