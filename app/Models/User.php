@@ -44,6 +44,11 @@ class User extends Authenticatable
         return $this->hasOne(Admin::class);
     }
 
+    public function polls()
+    {
+        return $this->hasMany(Poll::class, "created_by");
+    }
+
     public function isAdmin(): bool
     {
         return $this->admin()->exists();

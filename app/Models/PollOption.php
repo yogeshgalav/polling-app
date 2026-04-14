@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 class PollOption extends Model
 {
     //
-    protected $fillable = ["label", "vote_count"];
+    protected $fillable = ["label", "votes_count"];
 
     public function poll()
     {

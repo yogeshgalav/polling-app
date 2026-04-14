@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\PollController;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -14,6 +15,19 @@ Route::get("/", function () {
         "phpVersion" => PHP_VERSION,
     ]);
 });
+
+Route::get("/polls", [PollController::class, "index"])->name(
+    "polls.index",
+);
+Route::get("/polls/feed", [PollController::class, "feed"])->name(
+    "polls.feed",
+);
+Route::get("/polls/{poll:slug}", [PollController::class, "show"])->name(
+    "polls.show",
+);
+Route::post("/polls/{poll}/vote", [PollController::class, "vote"])->name(
+    "polls.vote",
+);
 
 Route::get("/dashboard", DashboardController::class)->middleware([
     "auth",
@@ -32,7 +46,7 @@ Route::middleware(["auth", "admin"])
         Route::resource(
             "polls",
             App\Http\Controllers\Admin\PollController::class,
-        );
+        )->only(["index", "create", "store"]);
     });
 
 Route::middleware("auth")->group(function () {

@@ -1,19 +1,31 @@
 <?php
 
 namespace App\Http\Controllers\Admin;
-use Inertia\Inertia;
+
+use App\Http\Controllers\Controller;
 use App\Models\Poll;
 use Illuminate\Http\Request;
-use App\Http\Controllers\Controller;
+use Illuminate\Support\Str;
+use Inertia\Inertia;
 
 class PollController extends Controller
 {
     public function index()
     {
         $polls = Poll::withCount("options")
-            ->where("admin_id", auth()->user()->admin->id)
+            ->where("created_by", auth()->id())
             ->latest()
-            ->get();
+            ->get()
+            ->map(
+                fn (Poll $poll) => [
+                    "id" => $poll->id,
+                    "title" => $poll->title,
+                    "slug" => $poll->slug,
+                    "options_count" => $poll->options_count,
+                    "created_at" => $poll->created_at?->toIso8601String(),
+                    "share_url" => url()->route("polls.show", $poll),
+                ],
+            );
 
         return Inertia::render("Admin/Polls/Index", [
             "polls" => $polls,
@@ -28,21 +40,26 @@ class PollController extends Controller
     public function store(Request $request)
     {
         $validated = $request->validate([
-            "question" => ["required", "string", "max:255"],
+            "title" => ["required", "string", "max:255"],
             "options" => ["required", "array", "min:2"],
             "options.*" => ["required", "string", "distinct", "max:255"],
         ]);
 
-        $poll = auth()
-            ->user()
-            ->admin->polls()
-            ->create([
-                "question" => $validated["question"],
-            ]);
+        $baseSlug = Str::slug($validated["title"]);
+        $slug = $baseSlug;
+        $n = 1;
+        while (Poll::where("slug", $slug)->exists()) {
+            $slug = $baseSlug . "-" . $n++;
+        }
+
+        $poll = auth()->user()->polls()->create([
+            "title" => $validated["title"],
+            "slug" => $slug,
+        ]);
 
         foreach ($validated["options"] as $option) {
             $poll->options()->create([
-                "option_text" => $option,
+                "label" => $option,
             ]);
         }
 
