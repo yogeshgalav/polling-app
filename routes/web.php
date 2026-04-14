@@ -27,7 +27,7 @@ Route::get("/polls/{poll:slug}", [PollController::class, "show"])->name(
 );
 Route::post("/polls/{poll}/vote", [PollController::class, "vote"])->name(
     "polls.vote",
-);
+)->middleware("throttle:poll-vote");
 
 Route::get("/dashboard", DashboardController::class)->middleware([
     "auth",
