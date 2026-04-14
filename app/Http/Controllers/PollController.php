@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Events\VoteCountUpdated;
 use App\Http\Requests\VotePollRequest;
 use App\Models\Guest;
 use App\Models\Poll;
@@ -56,6 +57,26 @@ class PollController extends Controller
                 "votes_count",
             );
         });
+
+        $poll->load("options");
+        $totalVotes = (int) $poll->options->sum("votes_count");
+        $options = $poll->options
+            ->map(
+                fn ($option) => [
+                    "id" => $option->id,
+                    "votes_count" => (int) $option->votes_count,
+                ],
+            )
+            ->values()
+            ->all();
+
+        broadcast(
+            new VoteCountUpdated(
+                pollId: $poll->id,
+                totalVotes: $totalVotes,
+                options: $options,
+            ),
+        );
 
         return response()->json([], 201);
     }

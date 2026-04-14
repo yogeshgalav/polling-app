@@ -21,6 +21,8 @@
         "vue": "^3.4.0"
     },
     "dependencies": {
+        "laravel-echo": "^2.3.4",
+        "pusher-js": "^8.5.0",
         "vue-virtual-scroller": "^2.0.1"
     }
 }

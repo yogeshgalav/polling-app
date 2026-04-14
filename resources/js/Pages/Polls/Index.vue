@@ -21,11 +21,47 @@ const voteError = ref(null);
 
 const scrollerRef = ref(null);
 let scrollEl = null;
+const subscribedPollIds = new Set();
 
 function onScroll(e) {
     const el = e.target;
     if (el.scrollHeight - el.scrollTop - el.clientHeight > 320) return;
     loadMore();
+}
+
+function applyVoteCountUpdate(pollId, payload) {
+    const i = items.value.findIndex((p) => p.id === pollId);
+    if (i === -1 || !payload) {
+        return;
+    }
+
+    const current = items.value[i];
+    const optionsById = new Map(payload.options.map((option) => [option.id, option]));
+    items.value[i] = {
+        ...current,
+        total_votes: payload.totalVotes,
+        options: current.options.map((option) => {
+            const updated = optionsById.get(option.id);
+            return updated ? { ...option, votes_count: updated.votes_count } : option;
+        }),
+    };
+}
+
+function syncBroadcastSubscriptions() {
+    if (!window.Echo) {
+        return;
+    }
+
+    for (const poll of items.value) {
+        if (subscribedPollIds.has(poll.id)) {
+            continue;
+        }
+
+        window.Echo.channel(`polls.${poll.id}`).listen('.votes.updated', (payload) => {
+            applyVoteCountUpdate(poll.id, payload);
+        });
+        subscribedPollIds.add(poll.id);
+    }
 }
 
 async function loadMore() {
@@ -40,6 +76,7 @@ async function loadMore() {
         items.value = items.value.concat(data.data);
         currentPage.value = data.current_page;
         lastPage.value = data.last_page;
+        syncBroadcastSubscriptions();
     } catch (e) {
         loadError.value =
             e.response?.data?.message ?? 'Could not load more polls. Try again.';
@@ -55,6 +92,8 @@ onMounted(() => {
         scrollEl = root;
         scrollEl.addEventListener('scroll', onScroll, { passive: true });
     });
+
+    syncBroadcastSubscriptions();
 });
 
 onBeforeUnmount(() => {
@@ -62,6 +101,14 @@ onBeforeUnmount(() => {
         scrollEl.removeEventListener('scroll', onScroll);
         scrollEl = null;
     }
+
+    if (window.Echo) {
+        for (const poll of items.value) {
+            window.Echo.leave(`polls.${poll.id}`);
+        }
+    }
+
+    subscribedPollIds.clear();
 });
 
 async function vote(poll, optionId) {
@@ -70,13 +117,25 @@ async function vote(poll, optionId) {
     voteError.value = null;
     votingPollId.value = poll.id;
     try {
-        const { data } = await window.axios.post(
+        await window.axios.post(
             route('polls.vote', { poll: poll.slug }),
             { poll_option_id: optionId },
         );
-        const updated = data.poll;
-        const i = items.value.findIndex((p) => p.id === updated.id);
-        if (i !== -1) items.value[i] = updated;
+
+        const i = items.value.findIndex((p) => p.id === poll.id);
+        if (i !== -1) {
+            const current = items.value[i];
+            items.value[i] = {
+                ...current,
+                voted_option_id: optionId,
+                total_votes: (current.total_votes ?? 0) + 1,
+                options: current.options.map((option) =>
+                    option.id === optionId
+                        ? { ...option, votes_count: (option.votes_count ?? 0) + 1 }
+                        : option,
+                ),
+            };
+        }
     } catch (e) {
         voteError.value =
             e.response?.data?.message ?? 'Could not submit your vote. Try again.';

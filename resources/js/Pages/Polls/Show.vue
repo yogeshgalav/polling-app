@@ -1,7 +1,7 @@
 <script setup>
 import PollCard from '@/Components/PollCard.vue';
 import { Head, Link, usePage } from '@inertiajs/vue3';
-import { ref } from 'vue';
+import { onBeforeUnmount, onMounted, ref } from 'vue';
 
 const props = defineProps({
     poll: { type: Object, required: true },
@@ -11,6 +11,28 @@ const page = usePage();
 const poll = ref(props.poll);
 const voting = ref(false);
 const err = ref(null);
+const channelName = `polls.${props.poll.id}`;
+
+function applyVoteCountUpdate(payload) {
+    if (!poll.value || !payload) {
+        return;
+    }
+
+    poll.value.total_votes = payload.totalVotes;
+    const optionsById = new Map(payload.options.map((option) => [option.id, option]));
+    poll.value.options = poll.value.options.map((option) => {
+        const updated = optionsById.get(option.id);
+        return updated ? { ...option, votes_count: updated.votes_count } : option;
+    });
+}
+
+onMounted(() => {
+    window.Echo?.channel(channelName).listen('.votes.updated', applyVoteCountUpdate);
+});
+
+onBeforeUnmount(() => {
+    window.Echo?.leave(channelName);
+});
 
 async function onVote(optionId) {
     const p = poll.value;
@@ -20,10 +42,17 @@ async function onVote(optionId) {
     err.value = null;
     voting.value = true;
     try {
-        const res = await window.axios.post(route('polls.vote', { poll: p.slug }), {
+        await window.axios.post(route('polls.vote', { poll: p.slug }), {
             poll_option_id: optionId,
         });
-        poll.value = res.data.poll;
+
+        poll.value.voted_option_id = optionId;
+        poll.value.total_votes = (poll.value.total_votes ?? 0) + 1;
+        poll.value.options = poll.value.options.map((option) =>
+            option.id === optionId
+                ? { ...option, votes_count: (option.votes_count ?? 0) + 1 }
+                : option,
+        );
     } catch (e) {
         err.value =
             e.response?.data?.message || 'Could not submit your vote. Try again.';
