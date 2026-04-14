@@ -2,7 +2,9 @@
 
 namespace App\Http\Requests;
 
+use App\Models\Guest;
 use App\Models\Poll;
+use App\Models\Vote;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
@@ -20,13 +22,7 @@ class VotePollRequest extends FormRequest
         $poll = $this->route("poll");
 
         return [
-            "poll_option_id" => [
-                "required",
-                "integer",
-                Rule::exists("poll_options", "id")->where(
-                    fn ($query) => $query->where("poll_id", $poll?->id),
-                ),
-            ],
+            "poll_option_id" => "required|integer|exists:poll_options,id",
         ];
     }
 
@@ -39,6 +35,8 @@ class VotePollRequest extends FormRequest
             if ($poll !== null && ! $poll->isOpen()) {
                 $validator->errors()->add("poll", "This poll is closed.");
             }
+
+            // i could also have checked for the guest_id duplicacy but that will run extra queries here.
         });
     }
 }

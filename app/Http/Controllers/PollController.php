@@ -3,11 +3,11 @@
 namespace App\Http\Controllers;
 
 use App\Events\VoteCountUpdated;
-use App\Http\Requests\VotePollRequest;
-use App\Models\Guest;
+use App\Http\Requests\VoteRequest;
 use App\Models\Poll;
 use App\Models\PollOption;
 use App\Models\Vote;
+use App\Repositories\GuestRepo;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
@@ -36,17 +36,24 @@ class PollController extends Controller
         ]);
     }
 
-    public function vote(VotePollRequest $request, Poll $poll)
+    public function vote(VoteRequest $request, Poll $poll)
     {
         $validated = $request->validated();
+        $userId = $request->user()?->id;
+        $guest = GuestRepo::firstOrCreateByUserOrIp(
+            userId: $userId,
+            ip: $request->ip(),
+            userAgent: $request->userAgent(),
+        );
 
-        DB::transaction(function () use ($poll, $request, $validated): void {
-            $guest = Guest::create([
-                "user_id" => $request->user()?->id,
-                "ip" => $request->ip(),
-                "user_agent" => $request->userAgent(),
-            ]);
+        if (Vote::where("poll_id", $poll->id)->where("guest_id", $guest->id)->exists()) {
+            return response()->json([
+                "message" => "Already voted",
+            ], 403);
+        }
 
+        DB::transaction(function () use ($poll, $guest, $validated): void { 
+    
             Vote::create([
                 "poll_id" => $poll->id,
                 "poll_option_id" => $validated["poll_option_id"],

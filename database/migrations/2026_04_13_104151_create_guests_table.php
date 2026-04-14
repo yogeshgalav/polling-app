@@ -9,6 +9,7 @@ return new class extends Migration {
     {
         Schema::create("guests", function (Blueprint $table) {
             $table->id();
+            //if using postgree I would keep it unique
             $table
                 ->foreignId("user_id")
                 ->nullable()
