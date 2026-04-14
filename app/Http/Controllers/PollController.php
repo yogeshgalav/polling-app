@@ -9,6 +9,7 @@ use App\Models\Poll;
 use App\Models\PollOption;
 use App\Models\Vote;
 use App\Repositories\GuestRepo;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -49,24 +50,54 @@ class PollController extends Controller
             userAgent: $request->userAgent(),
         );
 
-        if (Vote::where("poll_id", $poll->id)->where("guest_id", $guest->id)->exists()) {
+        $lockKey = "poll:{$poll->id}:guest:{$guest->id}:vote";
+        $lockTtlSeconds = 10;
+        $waitSeconds = 3;
+
+        try {
+            // checking idepontency and recording vote should be atomic
+            // although db level unique check is already there this is just for application layer check.
+            // apply cache lock to prevent multiple votes from same guest at the same time which can happen due to multiple quick requests 
+            // or websocket events from client side.
+            $result = Cache::lock($lockKey, $lockTtlSeconds)->block(
+                $waitSeconds,
+                function () use ($poll, $guest, $validated): array {
+                    $alreadyVoted = Vote::query()
+                        ->where("poll_id", $poll->id)
+                        ->where("guest_id", $guest->id)
+                        ->exists();
+
+                    if ($alreadyVoted) {
+                        return ["already_voted" => true];
+                    }
+
+                    DB::transaction(function () use ($poll, $guest, $validated): void {
+                        Vote::query()->create([
+                            "poll_id" => $poll->id,
+                            "poll_option_id" => $validated["poll_option_id"],
+                            "guest_id" => $guest->id,
+                        ]);
+
+                        PollOption::query()
+                            ->where("id", $validated["poll_option_id"])
+                            ->where("poll_id", $poll->id)
+                            ->increment("votes_count");
+                    });
+
+                    return ["already_voted" => false];
+                },
+            );
+        } catch (LockTimeoutException $exception) {
+            return response()->json([
+                "message" => "Vote is being processed. Please retry.",
+            ], 429);
+        }
+
+        if ($result["already_voted"]) {
             return response()->json([
                 "message" => "Already voted",
             ], 403);
         }
-
-        DB::transaction(function () use ($poll, $guest, $validated): void { 
-    
-            Vote::create([
-                "poll_id" => $poll->id,
-                "poll_option_id" => $validated["poll_option_id"],
-                "guest_id" => $guest->id,
-            ]);
-
-            PollOption::where("id", $validated["poll_option_id"])->increment(
-                "votes_count",
-            );
-        });
 
         $poll->load("options");
         $totalVotes = (int) $poll->options->sum("votes_count");
