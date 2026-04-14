@@ -132,8 +132,8 @@ class PollController extends Controller
             return $this->pollFeed($request);
         }
 
-        // if not in production cache feed for 5 mins
-        return Cache::remember('polls:'.$request->page, 300,
+        // for production cache feed forver until new poll is created.
+        return Cache::rememberForever('polls:'.$request->page,
             fn () => $this->pollFeed($request),
         );
     }
@@ -145,9 +145,9 @@ class PollController extends Controller
             ->with("options")
             ->orderBy('created_at', 'desc');
 
-        if ($request->user() !== null) {
-            $pollsQuery->where("created_by", "!=", $request->user()->id);
-        }
+        // if ($request->user() !== null) {
+        //     $pollsQuery->where("created_by", "!=", $request->user()->id);
+        // }
 
         $polls = $pollsQuery->paginate(10);
 

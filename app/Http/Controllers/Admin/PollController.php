@@ -7,6 +7,7 @@ use App\Models\Poll;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
+use Illuminate\Support\Facades\Cache;
 
 class PollController extends Controller
 {
@@ -63,6 +64,9 @@ class PollController extends Controller
             ]);
         }
 
+        for ($page = 1; $page <= 10; $page++) {
+            Cache::forget('poll:'.$page);
+        }
         return redirect()->route("admin.polls.index");
     }
 }
