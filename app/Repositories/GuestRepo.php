@@ -28,4 +28,15 @@ class GuestRepo
             "user_agent" => $userAgent,
         ]);
     }
+
+    public static function find(?int $userId, string $ip)
+    {
+        if ($userId) {
+            return Guest::query()
+                ->where("user_id", $userId)
+                ->first();
+        }
+
+        return Guest::query()->where("ip", $ip)->first();
+    }
 }

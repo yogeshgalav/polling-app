@@ -4,10 +4,12 @@ namespace App\Http\Controllers;
 
 use App\Events\VoteCountUpdated;
 use App\Http\Requests\VoteRequest;
+use App\Models\Guest;
 use App\Models\Poll;
 use App\Models\PollOption;
 use App\Models\Vote;
 use App\Repositories\GuestRepo;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
@@ -18,22 +20,23 @@ class PollController extends Controller
     public function index(Request $request)
     {
         return Inertia::render("Polls/Index", [
-            "polls" => [],
+            "polls" => $this->paginatedPollFeed($request),
         ]);
     }
 
     public function show(Request $request, Poll $poll)
     {
+        $poll->load("options");
+        $guest = GuestRepo::find($request->user()?->id, $request->ip());
+
         return Inertia::render("Polls/Show", [
-            "poll" => null,
+            "poll" => $this->pollResponse($poll,$guest, true),
         ]);
     }
 
     public function feed(Request $request)
     {
-        return response()->json([
-            "data" => [],
-        ]);
+        return response()->json($this->paginatedPollFeed($request));
     }
 
     public function vote(VoteRequest $request, Poll $poll)
@@ -85,6 +88,81 @@ class PollController extends Controller
             ),
         );
 
-        return response()->json([], 201);
+        return response()->json([
+            "voted_option_id" => (int) $validated["poll_option_id"],
+            "total_votes" => $totalVotes,
+            "options" => $options,
+        ], 201);
+    }
+
+    private function paginatedPollFeed(Request $request): array
+    {
+        if (! app()->isProduction() || !preg_match('/^([1-9]|10)$/', $request->page)) {
+            return $this->pollFeed($request);
+        }
+
+        // if not in production cache feed for 5 mins
+        return Cache::remember('polls:'.$request->page, 300,
+            fn () => $this->pollFeed($request),
+        );
+    }
+
+    private function pollFeed(Request $request): array
+    {
+        $guest = GuestRepo::find($request->user()?->id, $request->ip());
+        $pollsQuery = Poll::query()
+            ->with("options")
+            ->orderBy('created_at', 'desc');
+
+        if ($request->user() !== null) {
+            $pollsQuery->where("created_by", "!=", $request->user()->id);
+        }
+
+        $polls = $pollsQuery->paginate(10);
+
+        return [
+            "data" => collect($polls->items())
+                ->map(
+                    fn ($poll) => $this->pollResponse($poll,$guest,false ),
+                )
+                ->values()
+                ->all(),
+            "current_page" => $polls->currentPage(),
+            "last_page" => $polls->lastPage(),
+        ];
+    }
+
+    private function pollResponse($poll, $guest, $has_voted)
+    {
+        $votedOptionId = null;
+
+        if ($guest !== null) {
+            $votedOptionId = Vote::query()
+                ->where("poll_id", $poll->id)
+                ->where("guest_id", $guest->id)
+                ->value("poll_option_id");
+        }
+
+        $includeVoteCounts = $has_voted && $votedOptionId !== null;
+        return [
+            "id" => $poll->id,
+            "title" => $poll->title,
+            "slug" => $poll->slug,
+            "is_open" => $poll->isOpen(),
+            "expires_at" => $poll->expires_at?->toIso8601String(),
+            "voted_option_id" => $votedOptionId,
+            "total_votes" => (int) $poll->options->sum("votes_count"),
+            "options" => $poll->options->map(
+                    fn ( $option) => array_filter([
+                        "id" => $option->id,
+                        "label" => $option->label,
+                        "votes_count" => $includeVoteCounts
+                            ? (int) $option->votes_count
+                            : null,
+                    ], fn ($value) => $value !== null),
+                )
+                ->values()
+                ->all(),
+        ];
     }
 }

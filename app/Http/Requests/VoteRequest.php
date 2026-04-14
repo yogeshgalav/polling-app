@@ -9,7 +9,7 @@ use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
 
-class VotePollRequest extends FormRequest
+class VoteRequest extends FormRequest
 {
     public function authorize(): bool
     {

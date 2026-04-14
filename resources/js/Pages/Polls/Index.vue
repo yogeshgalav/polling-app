@@ -117,7 +117,7 @@ async function vote(poll, optionId) {
     voteError.value = null;
     votingPollId.value = poll.id;
     try {
-        await window.axios.post(
+        const { data } = await window.axios.post(
             route('polls.vote', { poll: poll.slug }),
             { poll_option_id: optionId },
         );
@@ -125,15 +125,19 @@ async function vote(poll, optionId) {
         const i = items.value.findIndex((p) => p.id === poll.id);
         if (i !== -1) {
             const current = items.value[i];
+            const optionsById = new Map(
+                (data.options ?? []).map((option) => [option.id, option]),
+            );
             items.value[i] = {
                 ...current,
-                voted_option_id: optionId,
-                total_votes: (current.total_votes ?? 0) + 1,
-                options: current.options.map((option) =>
-                    option.id === optionId
-                        ? { ...option, votes_count: (option.votes_count ?? 0) + 1 }
-                        : option,
-                ),
+                voted_option_id: data.voted_option_id ?? optionId,
+                total_votes: data.total_votes ?? current.total_votes,
+                options: current.options.map((option) => {
+                    const updated = optionsById.get(option.id);
+                    return updated
+                        ? { ...option, votes_count: updated.votes_count }
+                        : option;
+                }),
             };
         }
     } catch (e) {

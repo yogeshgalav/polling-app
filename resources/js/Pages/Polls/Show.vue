@@ -42,15 +42,16 @@ async function onVote(optionId) {
     err.value = null;
     voting.value = true;
     try {
-        await window.axios.post(route('polls.vote', { poll: p.slug }), {
+        const { data } = await window.axios.post(route('polls.vote', { poll: p.slug }), {
             poll_option_id: optionId,
         });
 
-        poll.value.voted_option_id = optionId;
-        poll.value.total_votes = (poll.value.total_votes ?? 0) + 1;
+        poll.value.voted_option_id = data.voted_option_id ?? optionId;
+        poll.value.total_votes = data.total_votes ?? poll.value.total_votes;
+        const optionsById = new Map((data.options ?? []).map((option) => [option.id, option]));
         poll.value.options = poll.value.options.map((option) =>
-            option.id === optionId
-                ? { ...option, votes_count: (option.votes_count ?? 0) + 1 }
+            optionsById.has(option.id)
+                ? { ...option, votes_count: optionsById.get(option.id).votes_count }
                 : option,
         );
     } catch (e) {
