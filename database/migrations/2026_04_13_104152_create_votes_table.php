@@ -18,16 +18,13 @@ return new class extends Migration {
                 ->constrained("poll_options")
                 ->cascadeOnDelete();
             $table
-                ->foreignId("user_id")
+                ->foreignId("guest_id")
                 ->nullable()
-                ->constrained("users")
+                ->constrained("guests")
                 ->nullOnDelete();
-            $table->string("device_id")->nullable();
-            $table->string("ip_address");
             $table->timestamps();
 
-            $table->unique(["poll_id", "user_id"]);
-            $table->unique(["poll_id", "device_id"]);
+            $table->unique(["poll_id", "guest_id"]);
         });
     }
 

@@ -2,17 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\VotePollRequest;
+use App\Models\Guest;
 use App\Models\Poll;
 use App\Models\PollOption;
 use App\Models\Vote;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Cookie;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 use Inertia\Inertia;
-use Inertia\Response;
-use Symfony\Component\HttpFoundation\Response as HttpFoundationResponse;
 
 class PollController extends Controller
 {
@@ -38,11 +35,28 @@ class PollController extends Controller
         ]);
     }
 
-    public function vote(Request $request, Poll $poll)
+    public function vote(VotePollRequest $request, Poll $poll)
     {
+        $validated = $request->validated();
 
-        return response()->json([
-            "poll" => null,
-        ]);
+        DB::transaction(function () use ($poll, $request, $validated): void {
+            $guest = Guest::create([
+                "user_id" => $request->user()?->id,
+                "ip" => $request->ip(),
+                "user_agent" => $request->userAgent(),
+            ]);
+
+            Vote::create([
+                "poll_id" => $poll->id,
+                "poll_option_id" => $validated["poll_option_id"],
+                "guest_id" => $guest->id,
+            ]);
+
+            PollOption::where("id", $validated["poll_option_id"])->increment(
+                "votes_count",
+            );
+        });
+
+        return response()->json([], 201);
     }
 }
