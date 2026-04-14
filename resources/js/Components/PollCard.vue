@@ -1,5 +1,7 @@
 <script setup>
-defineProps({
+import { computed } from 'vue';
+
+const props = defineProps({
     poll: {
         type: Object,
         required: true,
@@ -12,11 +14,20 @@ defineProps({
 
 const emit = defineEmits(['vote']);
 
+function voteCount(option) {
+    return Number(option.votes_count ?? 0);
+}
+
+const hasVoteCounts = computed(() =>
+    props.poll.options.every((option) => option.votes_count !== undefined && option.votes_count !== null),
+);
+
 function percent(option, poll) {
-    if (!poll.total_votes) {
+    const totalVotes = Number(poll.total_votes) || 0;
+    if (!totalVotes) {
         return 0;
     }
-    return Math.round((option.votes_count / poll.total_votes) * 100);
+    return Math.round((voteCount(option) / totalVotes) * 100);
 }
 
 function formatDate(iso) {
@@ -76,14 +87,14 @@ function formatDate(iso) {
                             opt.label
                         }}</span>
                         <span
-                            v-if="poll.voted_option_id || poll.total_votes > 0"
+                            v-if="hasVoteCounts"
                             class="text-xs tabular-nums text-slate-500"
                         >
-                            {{ percent(opt, poll) }}% · {{ opt.votes_count }}
+                            {{ percent(opt, poll) }}% · {{ voteCount(opt) }}
                         </span>
                     </div>
                     <div
-                        v-if="poll.voted_option_id || poll.total_votes > 0"
+                        v-if="hasVoteCounts"
                         class="h-1.5 w-full overflow-hidden rounded-full bg-slate-100"
                     >
                         <div
@@ -95,8 +106,9 @@ function formatDate(iso) {
             </li>
         </ul>
 
-        <p v-if="poll.voted_option_id" class="mt-3 text-xs text-slate-500">
-            You voted on this poll.
+        <p v-if="poll.total_votes" class="mt-3 text-xs text-slate-500">
+                        {{ poll.total_votes }} people voted on this.
+
         </p>
     </article>
 </template>

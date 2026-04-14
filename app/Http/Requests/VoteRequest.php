@@ -18,9 +18,6 @@ class VoteRequest extends FormRequest
 
     public function rules(): array
     {
-        /** @var Poll|null $poll */
-        $poll = $this->route("poll");
-
         return [
             "poll_option_id" => "required|integer|exists:poll_options,id",
         ];
