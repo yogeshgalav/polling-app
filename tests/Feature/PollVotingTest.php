@@ -55,7 +55,7 @@ class PollVotingTest extends TestCase
         });
     }
 
-    public function test_user_vote_requests_always_queue_jobs_even_for_duplicates(): void
+    public function test_user_duplicate_vote_requests_enqueue_only_one_unique_job(): void
     {
         [$poll, $firstOption, $secondOption] = $this->createPollWithOptions();
         /** @var User $user */
@@ -76,7 +76,7 @@ class PollVotingTest extends TestCase
             ]);
 
         $response->assertAccepted();
-        Queue::assertPushed(ProcessPollVote::class, 2);
+        Queue::assertPushed(ProcessPollVote::class, 1);
     }
 
     public function test_show_returns_expected_poll_response_format(): void

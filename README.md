@@ -21,9 +21,16 @@ This app includes several patterns that help under load and when running multipl
 
 ### Concurrency and data integrity
 
-- **Distributed cache lock on vote**: `Cache::lock("poll:{id}:guest:{guestId}:vote", …)->block(…)` wraps the idempotency check and vote write so duplicate rapid requests (or double submits) do not race past application checks. On lock timeout the API returns **429** with a retry message (`PollController@vote`).
+- **Asynchronous vote processing on high-priority queue**: `POST /polls/{poll}/vote` now returns quickly with **202 Accepted** and dispatches `ProcessPollVote` to the **`high`** queue. This keeps web request latency low under traffic spikes.
+- **Guest-scoped unique queue jobs**: vote processing reconstructs guest identity from `userId + ip + userAgent`, and `ProcessPollVote` uses `ShouldBeUnique` so only one in-flight vote job per poll+guest identity is queued for a short TTL window.
 - **Database uniqueness**: `votes` has a **unique index on `(poll_id, guest_id)`** so one vote per guest per poll is enforced at the database even if application logic were bypassed.
 - **Transactions**: Vote creation and `poll_options.votes_count` increment run inside a **single `DB::transaction`**.
+
+### High-traffic vote UX optimization
+
+- **Immediate selection on click**: frontend marks the selected option immediately (optimistic UI) before waiting for the API response.
+- **Response-driven optimistic counts**: the vote API responds with optimistic `total_votes` and `options[].votes_count` (`+1` for selected option), so percentages and bars update right away.
+- **Real-time reconciliation**: `votes.updated` broadcasts keep all clients in sync once the queued job commits.
 
 ### Caching
 
@@ -45,7 +52,7 @@ This app includes several patterns that help under load and when running multipl
 
 ### Recommended production tuning
 
-For multiple servers or heavy traffic, point **`CACHE_STORE`**, **`QUEUE_CONNECTION`**, and optionally **`SESSION_DRIVER`** at **Redis** so cache locks, rate limiter storage, sessions, and queues stay coherent across instances. The default `.env.example` uses **database** drivers for easy local setup.
+For multiple servers or heavy traffic, point **`CACHE_STORE`**, **`QUEUE_CONNECTION`**, and optionally **`SESSION_DRIVER`** at **Redis** so queue uniqueness locks, rate limiter storage, sessions, and queues stay coherent across instances. The default `.env.example` uses **database** drivers for easy local setup.
 
 ## Prerequisites
 
@@ -122,10 +129,10 @@ Start these processes in separate terminals:
    npm run dev
    ```
 
-3. Queue worker (required if broadcasts are queued):
+3. Queue worker (required for vote processing and broadcasts):
 
    ```bash
-   php artisan queue:work
+   php artisan queue:work --queue=high,default
    ```
 
 Then open `http://127.0.0.1:8000/polls`.
