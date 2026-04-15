@@ -65,7 +65,7 @@ class PollController extends Controller
         }
 
         for ($page = 1; $page <= 10; $page++) {
-            Cache::forget('poll:'.$page);
+            Cache::forget('polls:'.$page);
         }
         return redirect()->route("admin.polls.index");
     }

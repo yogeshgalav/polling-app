@@ -9,6 +9,44 @@ Laravel + Inertia + Vue polling application with real-time vote count updates vi
 - Vite
 - Laravel Echo + Reverb
 
+## Scalability and resilience
+
+This app includes several patterns that help under load and when running multiple app servers. Use them as talking points when describing how the system behaves at scale.
+
+### Rate limiting
+
+- **Poll voting** (`POST /polls/{poll}/vote`): Custom limiter `poll-vote` — **3 requests per second per IP** (`AppServiceProvider`). The route uses `throttle:poll-vote` middleware.
+- **Login**: **5 failed attempts** per `email|IP` key before lockout; successful login clears the counter (`LoginRequest` + `RateLimiter`).
+- **Email verification**: Resend and verify routes use **`throttle:6,1`** (6 requests per minute).
+
+### Concurrency and data integrity
+
+- **Distributed cache lock on vote**: `Cache::lock("poll:{id}:guest:{guestId}:vote", …)->block(…)` wraps the idempotency check and vote write so duplicate rapid requests (or double submits) do not race past application checks. On lock timeout the API returns **429** with a retry message (`PollController@vote`).
+- **Database uniqueness**: `votes` has a **unique index on `(poll_id, guest_id)`** so one vote per guest per poll is enforced at the database even if application logic were bypassed.
+- **Transactions**: Vote creation and `poll_options.votes_count` increment run inside a **single `DB::transaction`**.
+
+### Caching
+
+- **Poll feed (production)**: For `APP_ENV=production` and **pages 1–10 only**, the JSON feed is cached with **`Cache::rememberForever('polls:{page}', …)`** to cut repeated database work on hot list endpoints. Other environments skip this and always hit the DB.
+- **Invalidation**: When an admin **creates a new poll**, cached keys **`polls:1` … `polls:10`** are cleared so fresh data appears without restarting the app.
+
+### Real-time updates without polling the API
+
+- **`VoteCountUpdated`** implements **`ShouldBroadcast`** and publishes to channel `polls.{pollId}` as event `votes.updated`. Clients update via **Laravel Echo + Reverb** instead of hammering HTTP for counts. In production, **queue workers** process broadcast jobs (default queue is `database` in `.env.example`; **Redis** is typical for higher throughput).
+
+### Front-end performance
+
+- **`Vite::prefetch(concurrency: 3)`** in `AppServiceProvider` prefetches linked assets intelligently.
+- **`AddLinkHeadersForPreloadedAssets`** (web middleware) supports efficient asset preloading for Inertia/Vite builds.
+
+### Operations
+
+- **Health check**: `GET /up` is registered for load balancer and orchestration probes (`bootstrap/app.php`).
+
+### Recommended production tuning
+
+For multiple servers or heavy traffic, point **`CACHE_STORE`**, **`QUEUE_CONNECTION`**, and optionally **`SESSION_DRIVER`** at **Redis** so cache locks, rate limiter storage, sessions, and queues stay coherent across instances. The default `.env.example` uses **database** drivers for easy local setup.
+
 ## Prerequisites
 
 - PHP 8.2+
