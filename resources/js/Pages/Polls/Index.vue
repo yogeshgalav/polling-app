@@ -115,6 +115,16 @@ async function vote(poll, optionId) {
     if (!poll.is_open || poll.voted_option_id || votingPollId.value) return;
 
     voteError.value = null;
+    const i = items.value.findIndex((p) => p.id === poll.id);
+    if (i === -1) {
+        return;
+    }
+    const current = items.value[i];
+    const previousVotedOptionId = current.voted_option_id;
+    items.value[i] = {
+        ...current,
+        voted_option_id: optionId,
+    };
     votingPollId.value = poll.id;
     try {
         const { data } = await window.axios.post(
@@ -122,17 +132,17 @@ async function vote(poll, optionId) {
             { poll_option_id: optionId },
         );
 
-        const i = items.value.findIndex((p) => p.id === poll.id);
-        if (i !== -1) {
-            const current = items.value[i];
+        const responseIndex = items.value.findIndex((p) => p.id === poll.id);
+        if (responseIndex !== -1) {
+            const latest = items.value[responseIndex];
             const optionsById = new Map(
                 (data.options ?? []).map((option) => [option.id, option]),
             );
-            items.value[i] = {
-                ...current,
+            items.value[responseIndex] = {
+                ...latest,
                 voted_option_id: data.voted_option_id ?? optionId,
-                total_votes: data.total_votes ?? current.total_votes,
-                options: current.options.map((option) => {
+                total_votes: data.total_votes ?? latest.total_votes,
+                options: latest.options.map((option) => {
                     const updated = optionsById.get(option.id);
                     return updated
                         ? { ...option, votes_count: updated.votes_count }
@@ -141,6 +151,13 @@ async function vote(poll, optionId) {
             };
         }
     } catch (e) {
+        const rollbackIndex = items.value.findIndex((p) => p.id === poll.id);
+        if (rollbackIndex !== -1) {
+            items.value[rollbackIndex] = {
+                ...items.value[rollbackIndex],
+                voted_option_id: previousVotedOptionId,
+            };
+        }
         voteError.value =
             e.response?.data?.message ?? 'Could not submit your vote. Try again.';
     } finally {

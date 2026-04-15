@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Jobs\ProcessPollVote;
 use App\Models\Guest;
 use App\Models\Poll;
 use App\Models\PollOption;
@@ -9,11 +10,10 @@ use App\Models\User;
 use App\Models\Vote;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 use Inertia\Testing\AssertableInertia as Assert;
-use Mockery;
 use Tests\TestCase;
-use Illuminate\Contracts\Cache\LockTimeoutException;
 
 class PollVotingTest extends TestCase
 {
@@ -24,6 +24,7 @@ class PollVotingTest extends TestCase
         [$poll, $firstOption, $secondOption] = $this->createPollWithOptions();
         /** @var User $user */
         $user = User::factory()->createOne();
+        Queue::fake();
 
         $response = $this
             ->actingAs($user)
@@ -31,8 +32,9 @@ class PollVotingTest extends TestCase
                 "poll_option_id" => $firstOption->id,
             ]);
 
-        $response->assertCreated();
+        $response->assertAccepted();
         $response->assertJsonPath("voted_option_id", $firstOption->id);
+        $response->assertJsonPath("message", "Vote queued for processing");
         $response->assertJsonPath("total_votes", 1);
         $response->assertJsonFragment([
             "id" => $firstOption->id,
@@ -42,29 +44,30 @@ class PollVotingTest extends TestCase
             "id" => $secondOption->id,
             "votes_count" => 0,
         ]);
-        $this->assertDatabaseCount("votes", 1);
-        $this->assertDatabaseHas("votes", [
-            "poll_id" => $poll->id,
-            "poll_option_id" => $firstOption->id,
-        ]);
-        $this->assertDatabaseHas("poll_options", [
-            "id" => $firstOption->id,
-            "votes_count" => 1,
-        ]);
+        Queue::assertPushedOn("high", ProcessPollVote::class);
+        Queue::assertPushed(ProcessPollVote::class, function (
+            ProcessPollVote $job,
+        ) use ($poll, $firstOption, $user): bool {
+            return $job->pollId === $poll->id &&
+                $job->pollOptionId === $firstOption->id &&
+                $job->userId === $user->id &&
+                $job->ip === "127.0.0.1";
+        });
     }
 
-    public function test_user_cannot_vote_more_than_once_on_the_same_poll(): void
+    public function test_user_vote_requests_always_queue_jobs_even_for_duplicates(): void
     {
         [$poll, $firstOption, $secondOption] = $this->createPollWithOptions();
         /** @var User $user */
         $user = User::factory()->createOne();
+        Queue::fake();
 
         $this
             ->actingAs($user)
             ->postJson(route("polls.vote", $poll), [
                 "poll_option_id" => $firstOption->id,
             ])
-            ->assertCreated();
+            ->assertAccepted();
 
         $response = $this
             ->actingAs($user)
@@ -72,18 +75,8 @@ class PollVotingTest extends TestCase
                 "poll_option_id" => $secondOption->id,
             ]);
 
-        $response->assertStatus(403)->assertJson([
-            "message" => "Already voted",
-        ]);
-        $this->assertEquals(1, Vote::query()->where("poll_id", $poll->id)->count());
-        $this->assertDatabaseHas("poll_options", [
-            "id" => $firstOption->id,
-            "votes_count" => 1,
-        ]);
-        $this->assertDatabaseHas("poll_options", [
-            "id" => $secondOption->id,
-            "votes_count" => 0,
-        ]);
+        $response->assertAccepted();
+        Queue::assertPushed(ProcessPollVote::class, 2);
     }
 
     public function test_show_returns_expected_poll_response_format(): void
@@ -127,67 +120,39 @@ class PollVotingTest extends TestCase
             );
     }
 
-    public function test_vote_returns_processing_message_when_lock_times_out_for_same_user(): void
+    public function test_vote_queues_high_priority_job_for_same_user(): void
     {
         [$poll, $firstOption] = $this->createPollWithOptions();
         /** @var User $user */
         $user = User::factory()->createOne();
-        $guest = Guest::query()->create([
-            "user_id" => $user->id,
-            "ip" => "127.0.0.1",
-            "user_agent" => "PHPUnit",
-        ]);
-
-        Cache::shouldReceive("lock")
-            ->once()
-            ->withArgs(function (string $key, int $seconds) use ($poll, $guest): bool {
-                return $key === "poll:{$poll->id}:guest:{$guest->id}:vote" && $seconds === 10;
-            })
-            ->andReturn(
-                Mockery::mock()->shouldReceive("block")->once()->andThrow(new LockTimeoutException())->getMock(),
-            );
+        Queue::fake();
 
         $this->actingAs($user)
             ->withServerVariables(["REMOTE_ADDR" => "127.0.0.1"])
             ->postJson(route("polls.vote", $poll), [
                 "poll_option_id" => $firstOption->id,
             ])
-            ->assertStatus(429)
-            ->assertJson([
-                "message" => "Vote is being processed. Please retry.",
-            ]);
+            ->assertAccepted();
+
+        Queue::assertPushedOn("high", ProcessPollVote::class);
     }
 
-    public function test_vote_returns_processing_message_when_lock_times_out_for_same_ip_guest(): void
+    public function test_vote_queues_job_with_guest_ip_payload(): void
     {
         [$poll, $firstOption] = $this->createPollWithOptions();
-        $guest = Guest::query()->create([
-            "user_id" => null,
-            "ip" => "127.0.0.9",
-            "user_agent" => "PHPUnit",
-        ]);
-
-        // Vote action uses the real client IP only in production; otherwise it uses a random fake IP,
-        // so the lock key guest id is not always the pre-seeded row. Match the poll-scoped lock shape.
-        Cache::shouldReceive("lock")
-            ->once()
-            ->withArgs(function (string $key, int $seconds) use ($poll): bool {
-                $pattern = '/^poll:' . preg_quote((string) $poll->id, '/') . ':guest:\d+:vote$/';
-
-                return preg_match($pattern, $key) === 1 && $seconds === 10;
-            })
-            ->andReturn(
-                Mockery::mock()->shouldReceive("block")->once()->andThrow(new LockTimeoutException())->getMock(),
-            );
+        Queue::fake();
 
         $this->withServerVariables(["REMOTE_ADDR" => "127.0.0.9"])
             ->postJson(route("polls.vote", $poll), [
                 "poll_option_id" => $firstOption->id,
             ])
-            ->assertStatus(429)
-            ->assertJson([
-                "message" => "Vote is being processed. Please retry.",
-            ]);
+            ->assertAccepted();
+
+        Queue::assertPushed(ProcessPollVote::class, function (
+            ProcessPollVote $job,
+        ): bool {
+            return $job->userId === null && $job->ip === "127.0.0.9";
+        });
     }
 
     public function test_feed_cache_is_written_forever(): void
@@ -227,6 +192,28 @@ class PollVotingTest extends TestCase
         $response->assertJsonPath("data.0.total_votes", 5);
     }
 
+    public function test_feed_returns_voted_option_id_for_existing_guest_vote(): void
+    {
+        [$poll, $firstOption] = $this->createPollWithOptions();
+        $guest = Guest::query()->create([
+            "user_id" => null,
+            "ip" => "127.0.0.11",
+            "user_agent" => "PHPUnit",
+        ]);
+
+        Vote::query()->create([
+            "poll_id" => $poll->id,
+            "poll_option_id" => $firstOption->id,
+            "guest_id" => $guest->id,
+        ]);
+
+        $this->withServerVariables(["REMOTE_ADDR" => "127.0.0.11"])
+            ->getJson(route("polls.feed"))
+            ->assertOk()
+            ->assertJsonPath("data.0.id", $poll->id)
+            ->assertJsonPath("data.0.voted_option_id", $firstOption->id);
+    }
+
     public function test_vote_requests_are_rate_limited_per_ip(): void
     {
         /** @var User $user */
@@ -254,21 +241,21 @@ class PollVotingTest extends TestCase
             ->postJson(route("polls.vote", $polls[0][0]), [
                 "poll_option_id" => $polls[0][1]->id,
             ])
-            ->assertCreated();
+            ->assertAccepted();
 
         $this->actingAs($user)
             ->withServerVariables(["REMOTE_ADDR" => "127.0.0.1"])
             ->postJson(route("polls.vote", $polls[1][0]), [
                 "poll_option_id" => $polls[1][1]->id,
             ])
-            ->assertCreated();
+            ->assertAccepted();
 
         $this->actingAs($user)
             ->withServerVariables(["REMOTE_ADDR" => "127.0.0.1"])
             ->postJson(route("polls.vote", $polls[2][0]), [
                 "poll_option_id" => $polls[2][1]->id,
             ])
-            ->assertCreated();
+            ->assertAccepted();
 
         $this->actingAs($user)
             ->withServerVariables(["REMOTE_ADDR" => "127.0.0.1"])

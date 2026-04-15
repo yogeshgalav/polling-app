@@ -40,6 +40,8 @@ async function onVote(optionId) {
         return;
     }
     err.value = null;
+    const previousVotedOptionId = p.voted_option_id;
+    poll.value.voted_option_id = optionId;
     voting.value = true;
     try {
         const { data } = await window.axios.post(route('polls.vote', { poll: p.slug }), {
@@ -55,6 +57,7 @@ async function onVote(optionId) {
                 : option,
         );
     } catch (e) {
+        poll.value.voted_option_id = previousVotedOptionId;
         err.value =
             e.response?.data?.message || 'Could not submit your vote. Try again.';
     } finally {
