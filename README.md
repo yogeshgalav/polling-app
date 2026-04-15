@@ -7,7 +7,7 @@ Laravel + Inertia + Vue polling application with real-time vote count updates vi
 - Laravel 12
 - Inertia + Vue 3
 - Vite
-- Laravel Echo + Reverb
+- Laravel Echo + Pusher
 
 ## Scalability and resilience
 
@@ -32,7 +32,7 @@ This app includes several patterns that help under load and when running multipl
 
 ### Real-time updates without polling the API
 
-- **`VoteCountUpdated`** implements **`ShouldBroadcast`** and publishes to channel `polls.{pollId}` as event `votes.updated`. Clients update via **Laravel Echo + Reverb** instead of hammering HTTP for counts. In production, **queue workers** process broadcast jobs (default queue is `database` in `.env.example`; **Redis** is typical for higher throughput).
+- **`VoteCountUpdated`** implements **`ShouldBroadcast`** and publishes to channel `polls.{pollId}` as event `votes.updated`. Clients update via **Laravel Echo + Pusher** instead of hammering HTTP for counts. In production, **queue workers** process broadcast jobs (default queue is `database` in `.env.example`; **Redis** is typical for higher throughput).
 
 ### Front-end performance
 
@@ -85,11 +85,19 @@ For multiple servers or heavy traffic, point **`CACHE_STORE`**, **`QUEUE_CONNECT
 4. Ensure these broadcast/WebSocket values exist in `.env`:
 
    ```dotenv
-   BROADCAST_CONNECTION=reverb
-   VITE_REVERB_APP_KEY=local-app-key
-   VITE_REVERB_HOST=localhost
-   VITE_REVERB_PORT=8080
-   VITE_REVERB_SCHEME=http
+   BROADCAST_CONNECTION=pusher
+   PUSHER_APP_ID=your-pusher-app-id
+   PUSHER_APP_KEY=your-pusher-app-key
+   PUSHER_APP_SECRET=your-pusher-app-secret
+   PUSHER_HOST=
+   PUSHER_PORT=443
+   PUSHER_SCHEME=https
+   PUSHER_APP_CLUSTER=mt1
+   VITE_PUSHER_APP_KEY=your-pusher-app-key
+   VITE_PUSHER_HOST=
+   VITE_PUSHER_PORT=443
+   VITE_PUSHER_SCHEME=https
+   VITE_PUSHER_APP_CLUSTER=mt1
    ```
 
 5. Run database migrations:
@@ -114,10 +122,10 @@ Start these processes in separate terminals:
    npm run dev
    ```
 
-3. WebSocket server (Reverb):
+3. Queue worker (required if broadcasts are queued):
 
    ```bash
-   php artisan reverb:start
+   php artisan queue:work
    ```
 
 Then open `http://127.0.0.1:8000/polls`.
@@ -137,6 +145,6 @@ Use two separate browser sessions so each one acts like a different voter (for e
 
 If updates do not appear:
 
-- Confirm `php artisan reverb:start` is running.
-- Confirm `VITE_REVERB_*` values in `.env` match the running host/port.
+- Confirm Pusher credentials and cluster values in `.env` are valid.
+- Confirm `VITE_PUSHER_*` values in `.env` match your Pusher app settings.
 - Restart `npm run dev` after changing `.env` values so Vite reloads env vars.

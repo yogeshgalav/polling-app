@@ -22,6 +22,9 @@ const hasVoteCounts = computed(() =>
     props.poll.options.every((option) => option.votes_count !== undefined && option.votes_count !== null),
 );
 
+/** Distinct voters for this poll; always present from API and kept in sync via broadcast on Show/Index. */
+const totalPeopleVoted = computed(() => Number(props.poll.total_votes) || 0);
+
 function percent(option, poll) {
     const totalVotes = Number(poll.total_votes) || 0;
     if (!totalVotes) {
@@ -106,9 +109,10 @@ function formatDate(iso) {
             </li>
         </ul>
 
-        <p v-if="poll.total_votes" class="mt-3 text-xs text-slate-500">
-                        {{ poll.total_votes }} people voted on this.
-
+        <p class="mt-3 text-xs text-slate-500 tabular-nums">
+            <template v-if="totalPeopleVoted === 0">No votes yet.</template>
+            <template v-else-if="totalPeopleVoted === 1">1 person has voted.</template>
+            <template v-else>{{ totalPeopleVoted }} people have voted.</template>
         </p>
     </article>
 </template>

@@ -167,10 +167,14 @@ class PollVotingTest extends TestCase
             "user_agent" => "PHPUnit",
         ]);
 
+        // Vote action uses the real client IP only in production; otherwise it uses a random fake IP,
+        // so the lock key guest id is not always the pre-seeded row. Match the poll-scoped lock shape.
         Cache::shouldReceive("lock")
             ->once()
-            ->withArgs(function (string $key, int $seconds) use ($poll, $guest): bool {
-                return $key === "poll:{$poll->id}:guest:{$guest->id}:vote" && $seconds === 10;
+            ->withArgs(function (string $key, int $seconds) use ($poll): bool {
+                $pattern = '/^poll:' . preg_quote((string) $poll->id, '/') . ':guest:\d+:vote$/';
+
+                return preg_match($pattern, $key) === 1 && $seconds === 10;
             })
             ->andReturn(
                 Mockery::mock()->shouldReceive("block")->once()->andThrow(new LockTimeoutException())->getMock(),

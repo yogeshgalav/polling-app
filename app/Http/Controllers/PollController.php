@@ -44,9 +44,13 @@ class PollController extends Controller
     {
         $validated = $request->validated();
         $userId = $request->user()?->id;
+        $ip = $request->ip();
+        if(!app()->isProduction()){
+            $ip = fake()->ipv4();
+        }
         $guest = GuestRepo::firstOrCreateByUserOrIp(
             userId: $userId,
-            ip: $request->ip(),
+            ip: $ip,
             userAgent: $request->userAgent(),
         );
 
