@@ -21,6 +21,7 @@ class ProcessPollVote implements ShouldQueue, ShouldBeUnique
         public int $pollId,
         public int $pollOptionId,
         public ?int $userId,
+        public ?string $deviceId,
         public string $ip,
         public ?string $userAgent,
     ) {
@@ -35,8 +36,8 @@ class ProcessPollVote implements ShouldQueue, ShouldBeUnique
             $this->pollId,
             "user",
             $this->userId ?? "guest",
-            "ip",
-            $this->ip,
+            "device",
+            $this->deviceId ?? "none",
             "vote",
         ]);
     }
@@ -48,8 +49,9 @@ class ProcessPollVote implements ShouldQueue, ShouldBeUnique
             return;
         }
 
-        $guest = GuestRepo::firstOrCreateByUserOrIp(
+        $guest = GuestRepo::firstOrCreateByUserOrDeviceId(
             userId: $this->userId,
+            deviceId: $this->deviceId,
             ip: $this->ip,
             userAgent: $this->userAgent,
         );

@@ -6,8 +6,12 @@ use App\Models\Guest;
 
 class GuestRepo
 {
-    public static function firstOrCreateByUserOrIp(?int $userId, string $ip, ?string $userAgent): Guest
-    {
+    public static function firstOrCreateByUserOrDeviceId(
+        ?int $userId,
+        ?string $deviceId,
+        ?string $ip,
+        ?string $userAgent,
+    ): Guest {
         if ($userId) {
             $guest = Guest::where("user_id", $userId)->first();
 
@@ -15,29 +19,35 @@ class GuestRepo
                 return $guest;
             }
 
-            // Logged-in voters are keyed by user_id only. Do not reuse a row matched by IP
-            // (e.g. 127.0.0.1 for every local browser), or different accounts share one guest.
+            // Logged-in voters are keyed by user_id only. Do not reuse a row matched by device/IP
+            // (e.g. shared browsers or local testing), or different accounts share one guest.
             return Guest::create([
                 "user_id" => $userId,
+                "device_id" => $deviceId,
                 "ip" => $ip,
                 "user_agent" => $userAgent,
             ]);
         }
 
-        $guestByIp = Guest::where("ip", $ip)->whereNull("user_id")->first();
+        if ($deviceId !== null) {
+            $guestByDevice = Guest::where("device_id", $deviceId)
+                ->whereNull("user_id")
+                ->first();
 
-        if ($guestByIp) {
-            return $guestByIp;
+            if ($guestByDevice) {
+                return $guestByDevice;
+            }
         }
 
         return Guest::create([
             "user_id" => null,
+            "device_id" => $deviceId,
             "ip" => $ip,
             "user_agent" => $userAgent,
         ]);
     }
 
-    public static function find(?int $userId, string $ip)
+    public static function find(?int $userId, ?string $deviceId)
     {
         if ($userId) {
             return Guest::query()
@@ -45,8 +55,12 @@ class GuestRepo
                 ->first();
         }
 
+        if ($deviceId === null) {
+            return null;
+        }
+
         return Guest::query()
-            ->where("ip", $ip)
+            ->where("device_id", $deviceId)
             ->whereNull("user_id")
             ->first();
     }

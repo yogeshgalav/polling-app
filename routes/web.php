@@ -40,13 +40,18 @@ Route::middleware(["auth", "admin"])
     ->group(function () {
         Route::get(
             "/dashboard",
-            fn() => Inertia::render("Admin/Dashboard"),
+            fn() => redirect()->route("admin.polls.index"),
         )->name("dashboard");
+
+        Route::get("polls/{poll}/results", [
+            App\Http\Controllers\Admin\PollController::class,
+            "results",
+        ])->name("polls.results");
 
         Route::resource(
             "polls",
             App\Http\Controllers\Admin\PollController::class,
-        )->only(["index", "create", "store"]);
+        )->only(["index", "create", "store", "edit", "update", "destroy"]);
     });
 
 Route::middleware("auth")->group(function () {

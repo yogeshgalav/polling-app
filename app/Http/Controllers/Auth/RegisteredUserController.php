@@ -61,7 +61,7 @@ class RegisteredUserController extends Controller
         Auth::login($user);
 
         return redirect(
-            $user->isAdmin() ? route("admin.dashboard") : route("dashboard"),
+            $user->isAdmin() ? route("admin.polls.index") : route("dashboard"),
         );
     }
 }

@@ -13,6 +13,10 @@ async function copyShareUrl(poll) {
     await navigator.clipboard.writeText(poll.share_url);
 }
 
+function confirmDelete(poll) {
+    return window.confirm(`Delete "${poll.title}"? This cannot be undone.`);
+}
+
 function createdLabel(iso) {
     if (!iso) {
         return '';
@@ -87,6 +91,40 @@ function createdLabel(iso) {
                             >
                                 Copy link
                             </button>
+
+                            <div class="flex flex-wrap gap-2 sm:ml-auto">
+                                <Link
+                                    :href="route('admin.polls.results', poll.slug)"
+                                    class="btn-secondary"
+                                >
+                                    Results
+                                </Link>
+                                <Link
+                                    v-if="!poll.has_votes"
+                                    :href="route('admin.polls.edit', poll.slug)"
+                                    class="btn-secondary"
+                                >
+                                    Edit
+                                </Link>
+                                <button
+                                    v-else
+                                    type="button"
+                                    class="btn-secondary opacity-50 cursor-not-allowed"
+                                    disabled
+                                    title="This poll already has votes and can't be edited."
+                                >
+                                    Edit
+                                </button>
+                                <Link
+                                    as="button"
+                                    method="delete"
+                                    :href="route('admin.polls.destroy', poll.slug)"
+                                    class="btn-danger"
+                                    @click="(e) => !confirmDelete(poll) && e.preventDefault()"
+                                >
+                                    Delete
+                                </Link>
+                            </div>
                         </div>
                     </li>
                 </ul>

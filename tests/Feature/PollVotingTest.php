@@ -24,10 +24,12 @@ class PollVotingTest extends TestCase
         [$poll, $firstOption, $secondOption] = $this->createPollWithOptions();
         /** @var User $user */
         $user = User::factory()->createOne();
+        $deviceId = (string) Str::uuid();
         Queue::fake();
 
         $response = $this
             ->actingAs($user)
+            ->withServerVariables(["HTTP_COOKIE" => "poll_device_id={$deviceId}"])
             ->postJson(route("polls.vote", $poll), [
                 "poll_option_id" => $firstOption->id,
             ]);
@@ -47,10 +49,11 @@ class PollVotingTest extends TestCase
         Queue::assertPushedOn("high", ProcessPollVote::class);
         Queue::assertPushed(ProcessPollVote::class, function (
             ProcessPollVote $job,
-        ) use ($poll, $firstOption, $user): bool {
+        ) use ($poll, $firstOption, $user, $deviceId): bool {
             return $job->pollId === $poll->id &&
                 $job->pollOptionId === $firstOption->id &&
                 $job->userId === $user->id &&
+                $job->deviceId === $deviceId &&
                 $job->ip === "127.0.0.1";
         });
     }
@@ -60,10 +63,12 @@ class PollVotingTest extends TestCase
         [$poll, $firstOption, $secondOption] = $this->createPollWithOptions();
         /** @var User $user */
         $user = User::factory()->createOne();
+        $deviceId = (string) Str::uuid();
         Queue::fake();
 
         $this
             ->actingAs($user)
+            ->withServerVariables(["HTTP_COOKIE" => "poll_device_id={$deviceId}"])
             ->postJson(route("polls.vote", $poll), [
                 "poll_option_id" => $firstOption->id,
             ])
@@ -71,6 +76,7 @@ class PollVotingTest extends TestCase
 
         $response = $this
             ->actingAs($user)
+            ->withServerVariables(["HTTP_COOKIE" => "poll_device_id={$deviceId}"])
             ->postJson(route("polls.vote", $poll), [
                 "poll_option_id" => $secondOption->id,
             ]);
@@ -101,7 +107,6 @@ class PollVotingTest extends TestCase
         $poll->refresh()->load("options");
 
         $this->actingAs($user)
-            ->withServerVariables(["REMOTE_ADDR" => "127.0.0.1"])
             ->get(route("polls.show", $poll))
             ->assertInertia(
                 fn (Assert $page) => $page
@@ -128,7 +133,6 @@ class PollVotingTest extends TestCase
         Queue::fake();
 
         $this->actingAs($user)
-            ->withServerVariables(["REMOTE_ADDR" => "127.0.0.1"])
             ->postJson(route("polls.vote", $poll), [
                 "poll_option_id" => $firstOption->id,
             ])
@@ -140,18 +144,19 @@ class PollVotingTest extends TestCase
     public function test_vote_queues_job_with_guest_ip_payload(): void
     {
         [$poll, $firstOption] = $this->createPollWithOptions();
+        $deviceId = (string) Str::uuid();
         Queue::fake();
 
-        $this->withServerVariables(["REMOTE_ADDR" => "127.0.0.9"])
-            ->postJson(route("polls.vote", $poll), [
-                "poll_option_id" => $firstOption->id,
-            ])
+        $this->withServerVariables(["HTTP_COOKIE" => "poll_device_id={$deviceId}"])
+            ->postJson(route("polls.vote", $poll), ["poll_option_id" => $firstOption->id])
             ->assertAccepted();
 
         Queue::assertPushed(ProcessPollVote::class, function (
             ProcessPollVote $job,
-        ): bool {
-            return $job->userId === null && $job->ip === "127.0.0.9";
+        ) use ($deviceId): bool {
+            return $job->userId === null &&
+                $job->deviceId === $deviceId &&
+                $job->ip === "127.0.0.1";
         });
     }
 
@@ -195,9 +200,11 @@ class PollVotingTest extends TestCase
     public function test_feed_returns_voted_option_id_for_existing_guest_vote(): void
     {
         [$poll, $firstOption] = $this->createPollWithOptions();
+        $deviceId = (string) Str::uuid();
         $guest = Guest::query()->create([
             "user_id" => null,
-            "ip" => "127.0.0.11",
+            "device_id" => $deviceId,
+            "ip" => "127.0.0.1",
             "user_agent" => "PHPUnit",
         ]);
 
@@ -207,17 +214,18 @@ class PollVotingTest extends TestCase
             "guest_id" => $guest->id,
         ]);
 
-        $this->withServerVariables(["REMOTE_ADDR" => "127.0.0.11"])
+        $this->withServerVariables(["HTTP_COOKIE" => "poll_device_id={$deviceId}"])
             ->getJson(route("polls.feed"))
             ->assertOk()
             ->assertJsonPath("data.0.id", $poll->id)
             ->assertJsonPath("data.0.voted_option_id", $firstOption->id);
     }
 
-    public function test_vote_requests_are_rate_limited_per_ip(): void
+    public function test_vote_requests_are_rate_limited_per_device_id(): void
     {
         /** @var User $user */
         $user = User::factory()->createOne();
+        $deviceId = (string) Str::uuid();
 
         $polls = collect(range(1, 4))->map(function () use ($user) {
             $poll = Poll::query()->create([
@@ -237,28 +245,28 @@ class PollVotingTest extends TestCase
         });
 
         $this->actingAs($user)
-            ->withServerVariables(["REMOTE_ADDR" => "127.0.0.1"])
+            ->withServerVariables(["HTTP_COOKIE" => "poll_device_id={$deviceId}"])
             ->postJson(route("polls.vote", $polls[0][0]), [
                 "poll_option_id" => $polls[0][1]->id,
             ])
             ->assertAccepted();
 
         $this->actingAs($user)
-            ->withServerVariables(["REMOTE_ADDR" => "127.0.0.1"])
+            ->withServerVariables(["HTTP_COOKIE" => "poll_device_id={$deviceId}"])
             ->postJson(route("polls.vote", $polls[1][0]), [
                 "poll_option_id" => $polls[1][1]->id,
             ])
             ->assertAccepted();
 
         $this->actingAs($user)
-            ->withServerVariables(["REMOTE_ADDR" => "127.0.0.1"])
+            ->withServerVariables(["HTTP_COOKIE" => "poll_device_id={$deviceId}"])
             ->postJson(route("polls.vote", $polls[2][0]), [
                 "poll_option_id" => $polls[2][1]->id,
             ])
             ->assertAccepted();
 
         $this->actingAs($user)
-            ->withServerVariables(["REMOTE_ADDR" => "127.0.0.1"])
+            ->withServerVariables(["HTTP_COOKIE" => "poll_device_id={$deviceId}"])
             ->postJson(route("polls.vote", $polls[3][0]), [
                 "poll_option_id" => $polls[3][1]->id,
             ])
