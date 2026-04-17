@@ -285,6 +285,86 @@ class PollVotingTest extends TestCase
             ->assertStatus(429);
     }
 
+    public function test_guest_vote_is_linked_to_user_after_login(): void
+    {
+        [$poll, $firstOption] = $this->createPollWithOptions();
+        /** @var User $user */
+        $user = User::factory()->createOne();
+        $deviceId = (string) Str::uuid();
+
+        $this->withServerVariables(["HTTP_COOKIE" => "poll_device_id={$deviceId}"])
+            ->postJson(route("polls.vote", $poll), [
+                "poll_option_id" => $firstOption->id,
+            ])
+            ->assertCreated();
+
+        $guestBefore = Guest::query()
+            ->where("device_id", $deviceId)
+            ->whereNull("user_id")
+            ->first();
+        $this->assertNotNull($guestBefore);
+
+        $this->withServerVariables(["HTTP_COOKIE" => "poll_device_id={$deviceId}"])
+            ->postJson("/api/auth/login", [
+                "email" => $user->email,
+                "password" => "password",
+            ])
+            ->assertOk();
+
+        $guestAfter = Guest::query()->find($guestBefore->id);
+        $this->assertNotNull($guestAfter);
+        $this->assertSame($user->id, $guestAfter->user_id);
+
+        $this->actingAs($user)
+            ->withServerVariables(["HTTP_COOKIE" => "poll_device_id={$deviceId}"])
+            ->getJson(route("polls.feed"))
+            ->assertOk()
+            ->assertJsonPath("data.0.voted_option_id", $firstOption->id);
+    }
+
+    public function test_guest_vote_is_linked_to_user_after_register(): void
+    {
+        [$poll, $firstOption] = $this->createPollWithOptions();
+        $deviceId = (string) Str::uuid();
+
+        $this->withServerVariables(["HTTP_COOKIE" => "poll_device_id={$deviceId}"])
+            ->postJson(route("polls.vote", $poll), [
+                "poll_option_id" => $firstOption->id,
+            ])
+            ->assertCreated();
+
+        $guestBefore = Guest::query()
+            ->where("device_id", $deviceId)
+            ->whereNull("user_id")
+            ->first();
+        $this->assertNotNull($guestBefore);
+
+        $email = "new-voter-" . strtolower(Str::random(8)) . "@example.com";
+        $response = $this->withServerVariables([
+            "HTTP_COOKIE" => "poll_device_id={$deviceId}",
+        ])->postJson("/api/auth/register", [
+            "name" => "New Voter",
+            "email" => $email,
+            "password" => "password",
+            "password_confirmation" => "password",
+        ]);
+
+        $response->assertOk();
+
+        $user = User::query()->where("email", $email)->first();
+        $this->assertNotNull($user);
+
+        $guestAfter = Guest::query()->find($guestBefore->id);
+        $this->assertNotNull($guestAfter);
+        $this->assertSame($user->id, $guestAfter->user_id);
+
+        $this->actingAs($user)
+            ->withServerVariables(["HTTP_COOKIE" => "poll_device_id={$deviceId}"])
+            ->getJson(route("polls.feed"))
+            ->assertOk()
+            ->assertJsonPath("data.0.voted_option_id", $firstOption->id);
+    }
+
     private function createPollWithOptions(): array
     {
         /** @var User $creator */

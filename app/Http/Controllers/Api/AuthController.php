@@ -2,8 +2,11 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Events\UserLoginEvent;
+use App\Events\UserRegisterEvent;
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Support\PollDeviceId;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -47,6 +50,8 @@ class AuthController extends Controller
         Auth::login($user);
         $request->session()->regenerate();
 
+        UserRegisterEvent::dispatch($user, PollDeviceId::read($request));
+
         return response()->json([
             "user" => $user,
             "redirect_to" => $user->isAdmin() ? route("admin.polls.index") : route("polls.index"),
@@ -74,9 +79,14 @@ class AuthController extends Controller
 
         $request->session()->regenerate();
 
+        $user = $request->user();
+        if ($user !== null) {
+            UserLoginEvent::dispatch($user, PollDeviceId::read($request));
+        }
+
         return response()->json([
-            "user" => $request->user(),
-            "redirect_to" => $request->user()?->isAdmin()
+            "user" => $user,
+            "redirect_to" => $user?->isAdmin()
                 ? route("admin.polls.index")
                 : route("polls.index"),
         ]);
