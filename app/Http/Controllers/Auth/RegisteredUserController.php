@@ -11,7 +11,6 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rules;
-use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -61,7 +60,7 @@ class RegisteredUserController extends Controller
         Auth::login($user);
 
         return redirect(
-            $user->isAdmin() ? route("admin.polls.index") : route("dashboard"),
+            $user->isAdmin() ? route("admin.polls.index") : route("polls.index"),
         );
     }
 }

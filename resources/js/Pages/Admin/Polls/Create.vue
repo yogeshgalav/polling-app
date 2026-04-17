@@ -5,37 +5,62 @@ import InputLabel from '@/Components/InputLabel.vue';
 import PrimaryButton from '@/Components/PrimaryButton.vue';
 import SecondaryButton from '@/Components/SecondaryButton.vue';
 import TextInput from '@/Components/TextInput.vue';
-import { Head, Link, useForm } from '@inertiajs/vue3';
+import { Head, Link, router } from '@inertiajs/vue3';
 import { ref } from 'vue';
 
-const form = useForm({
+const form = ref({
     title: '',
     options: ['', ''],
 });
 
 const clientError = ref('');
+const processing = ref(false);
+const errors = ref({});
 
 function addOption() {
-    form.options.push('');
+    form.value.options.push('');
 }
 
 function removeOption(index) {
-    if (form.options.length <= 2) {
+    if (form.value.options.length <= 2) {
         return;
     }
-    form.options.splice(index, 1);
+    form.value.options.splice(index, 1);
 }
 
-function submit() {
+function setErrors(nextErrors) {
+    errors.value = nextErrors ?? {};
+}
+
+async function submit() {
     clientError.value = '';
-    const options = form.options.map((s) => s.trim()).filter(Boolean);
+    setErrors({});
+
+    const options = form.value.options.map((s) => s.trim()).filter(Boolean);
     if (options.length < 2) {
         clientError.value = 'Enter at least two different choices.';
         return;
     }
-    form.title = form.title.trim();
-    form.options = options;
-    form.post(route('admin.polls.store'));
+
+    const payload = {
+        title: String(form.value.title ?? '').trim(),
+        options,
+    };
+
+    processing.value = true;
+    try {
+        const { data } = await window.axios.post(route('admin.api.polls.store'), payload);
+        router.visit(data?.redirect ?? route('admin.polls.index'));
+    } catch (e) {
+        if (e.response?.status === 422) {
+            setErrors(e.response?.data?.errors ?? {});
+            clientError.value = e.response?.data?.message ?? '';
+            return;
+        }
+        clientError.value = e.response?.data?.message ?? 'Could not create poll. Try again.';
+    } finally {
+        processing.value = false;
+    }
 }
 </script>
 
@@ -64,7 +89,7 @@ function submit() {
                             placeholder="What do you want to ask?"
                             autocomplete="off"
                         />
-                        <InputError class="mt-2" :message="form.errors.title" />
+                        <InputError class="mt-2" :message="errors.title" />
                     </div>
 
                     <div>
@@ -98,13 +123,13 @@ function submit() {
                         </ul>
                         <InputError
                             class="mt-2"
-                            :message="form.errors.options"
+                            :message="errors.options"
                         />
                         <InputError
                             v-for="(_, i) in form.options"
                             :key="'opt-err-' + i"
                             class="mt-1"
-                            :message="form.errors['options.' + i]"
+                            :message="errors['options.' + i]"
                         />
                         <p v-if="clientError" class="mt-2 text-sm text-red-600">
                             {{ clientError }}
@@ -117,7 +142,7 @@ function submit() {
                     </div>
 
                     <div class="flex items-center gap-3">
-                        <PrimaryButton :disabled="form.processing">
+                        <PrimaryButton :disabled="processing">
                             Create poll
                         </PrimaryButton>
                         <Link

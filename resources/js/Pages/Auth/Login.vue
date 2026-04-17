@@ -5,12 +5,9 @@ import InputError from '@/Components/InputError.vue';
 import InputLabel from '@/Components/InputLabel.vue';
 import PrimaryButton from '@/Components/PrimaryButton.vue';
 import TextInput from '@/Components/TextInput.vue';
-import { Head, Link, useForm } from '@inertiajs/vue3';
+import { Head, useForm } from '@inertiajs/vue3';
 
 defineProps({
-    canResetPassword: {
-        type: Boolean,
-    },
     status: {
         type: String,
     },
@@ -22,10 +19,26 @@ const form = useForm({
     remember: false,
 });
 
-const submit = () => {
-    form.post(route('login'), {
-        onFinish: () => form.reset('password'),
-    });
+const submit = async () => {
+    form.clearErrors();
+
+    try {
+        await window.axios.get('/sanctum/csrf-cookie');
+        const { data } = await window.axios.post('/api/auth/login', {
+            email: form.email,
+            password: form.password,
+            remember: form.remember,
+        });
+
+        window.location.href = data?.redirect_to ?? route('polls.index');
+    } catch (error) {
+        const errors = error?.response?.data?.errors;
+        if (errors && typeof errors === 'object') {
+            form.setError(errors);
+        }
+    } finally {
+        form.reset('password');
+    }
 };
 </script>
 
@@ -79,14 +92,6 @@ const submit = () => {
             </div>
 
             <div class="mt-4 flex items-center justify-end">
-                <Link
-                    v-if="canResetPassword"
-                    :href="route('password.request')"
-                    class="rounded-md text-sm text-gray-600 underline hover:text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-                >
-                    Forgot your password?
-                </Link>
-
                 <PrimaryButton
                     class="ms-4"
                     :class="{ 'opacity-25': form.processing }"

@@ -5,14 +5,14 @@ import InputLabel from '@/Components/InputLabel.vue';
 import PrimaryButton from '@/Components/PrimaryButton.vue';
 import SecondaryButton from '@/Components/SecondaryButton.vue';
 import TextInput from '@/Components/TextInput.vue';
-import { Head, Link, useForm } from '@inertiajs/vue3';
+import { Head, Link, router } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
 
 const props = defineProps({
     poll: { type: Object, required: true },
 });
 
-const form = useForm({
+const form = ref({
     title: props.poll.title ?? '',
     options: (props.poll.options ?? []).map((o) => ({
         id: o.id,
@@ -22,27 +22,34 @@ const form = useForm({
 });
 
 const clientError = ref('');
+const processing = ref(false);
+const errors = ref({});
 
-const canRemoveAny = computed(() => form.options.length > 2);
+const canRemoveAny = computed(() => form.value.options.length > 2);
 
 function addOption() {
-    form.options.push({ id: null, label: '', votes_count: 0 });
+    form.value.options.push({ id: null, label: '', votes_count: 0 });
 }
 
 function removeOption(index) {
-    if (form.options.length <= 2) {
+    if (form.value.options.length <= 2) {
         return;
     }
-    if (Number(form.options[index]?.votes_count ?? 0) > 0) {
+    if (Number(form.value.options[index]?.votes_count ?? 0) > 0) {
         return;
     }
-    form.options.splice(index, 1);
+    form.value.options.splice(index, 1);
 }
 
-function submit() {
-    clientError.value = '';
+function setErrors(nextErrors) {
+    errors.value = nextErrors ?? {};
+}
 
-    const normalized = form.options
+async function submit() {
+    clientError.value = '';
+    setErrors({});
+
+    const normalized = form.value.options
         .map((o) => ({
             id: o.id ?? null,
             label: String(o.label ?? '').trim(),
@@ -60,14 +67,28 @@ function submit() {
         return;
     }
 
-    form.title = String(form.title ?? '').trim();
-
-    form.transform((data) => ({
-        ...data,
+    const payload = {
+        title: String(form.value.title ?? '').trim(),
         options: normalized,
-    }));
+    };
 
-    form.put(route('admin.polls.update', props.poll.slug));
+    processing.value = true;
+    try {
+        const { data } = await window.axios.put(
+            route('admin.api.polls.update', props.poll.slug),
+            payload,
+        );
+        router.visit(data?.redirect ?? route('admin.polls.index'));
+    } catch (e) {
+        if (e.response?.status === 422) {
+            setErrors(e.response?.data?.errors ?? {});
+            clientError.value = e.response?.data?.message ?? '';
+            return;
+        }
+        clientError.value = e.response?.data?.message ?? 'Could not save poll. Try again.';
+    } finally {
+        processing.value = false;
+    }
 }
 </script>
 
@@ -111,7 +132,7 @@ function submit() {
                             placeholder="What do you want to ask?"
                             autocomplete="off"
                         />
-                        <InputError class="mt-2" :message="form.errors.title" />
+                        <InputError class="mt-2" :message="errors.title" />
                     </div>
 
                     <div>
@@ -153,12 +174,12 @@ function submit() {
                             </li>
                         </ul>
 
-                        <InputError class="mt-2" :message="form.errors.options" />
+                        <InputError class="mt-2" :message="errors.options" />
                         <InputError
                             v-for="(_, i) in form.options"
                             :key="'opt-err-' + i"
                             class="mt-1"
-                            :message="form.errors['options.' + i + '.label']"
+                            :message="errors['options.' + i + '.label']"
                         />
                         <p v-if="clientError" class="mt-2 text-sm text-red-600">
                             {{ clientError }}
@@ -172,7 +193,7 @@ function submit() {
                     </div>
 
                     <div class="flex items-center gap-3">
-                        <PrimaryButton :disabled="form.processing">
+                        <PrimaryButton :disabled="processing">
                             Save changes
                         </PrimaryButton>
                         <Link

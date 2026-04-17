@@ -14,10 +14,30 @@ const form = useForm({
     is_admin: false,
 });
 
-const submit = () => {
-    form.post(route('register'), {
-        onFinish: () => form.reset('password', 'password_confirmation'),
-    });
+const submit = async () => {
+    form.clearErrors();
+
+    try {
+        await window.axios.get('/sanctum/csrf-cookie');
+        const { data } = await window.axios.post('/api/auth/register', {
+            name: form.name,
+            email: form.email,
+            password: form.password,
+            password_confirmation: form.password_confirmation,
+            is_admin: form.is_admin,
+        });
+
+        window.location.href =
+            data?.redirect_to ??
+            (form.is_admin ? route('admin.polls.index') : route('polls.index'));
+    } catch (error) {
+        const errors = error?.response?.data?.errors;
+        if (errors && typeof errors === 'object') {
+            form.setError(errors);
+        }
+    } finally {
+        form.reset('password', 'password_confirmation');
+    }
 };
 </script>
 

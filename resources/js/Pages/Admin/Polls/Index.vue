@@ -1,13 +1,18 @@
 <script setup>
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head, Link } from '@inertiajs/vue3';
+import { ref } from 'vue';
 
-defineProps({
+const props = defineProps({
     polls: {
         type: Array,
         required: true,
     },
 });
+
+const polls = ref([...props.polls]);
+const deletingSlug = ref(null);
+const deleteError = ref('');
 
 async function copyShareUrl(poll) {
     await navigator.clipboard.writeText(poll.share_url);
@@ -15,6 +20,24 @@ async function copyShareUrl(poll) {
 
 function confirmDelete(poll) {
     return window.confirm(`Delete "${poll.title}"? This cannot be undone.`);
+}
+
+async function destroyPoll(poll) {
+    deleteError.value = '';
+    if (!confirmDelete(poll)) {
+        return;
+    }
+
+    deletingSlug.value = poll.slug;
+    try {
+        await window.axios.delete(route('admin.api.polls.destroy', poll.slug));
+        polls.value = polls.value.filter((p) => p.slug !== poll.slug);
+    } catch (e) {
+        deleteError.value =
+            e.response?.data?.message ?? 'Could not delete poll. Try again.';
+    } finally {
+        deletingSlug.value = null;
+    }
 }
 
 function createdLabel(iso) {
@@ -51,6 +74,12 @@ function createdLabel(iso) {
 
         <div class="py-10">
             <div class="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8">
+                <p
+                    v-if="deleteError"
+                    class="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900"
+                >
+                    {{ deleteError }}
+                </p>
                 <div
                     v-if="!polls.length"
                     class="rounded-lg border border-dashed border-gray-300 bg-white p-8 text-center text-gray-600"
@@ -115,15 +144,14 @@ function createdLabel(iso) {
                                 >
                                     Edit
                                 </button>
-                                <Link
-                                    as="button"
-                                    method="delete"
-                                    :href="route('admin.polls.destroy', poll.slug)"
+                                <button
+                                    type="button"
                                     class="btn-danger"
-                                    @click="(e) => !confirmDelete(poll) && e.preventDefault()"
+                                    :disabled="deletingSlug === poll.slug"
+                                    @click="destroyPoll(poll)"
                                 >
                                     Delete
-                                </Link>
+                                </button>
                             </div>
                         </div>
                     </li>

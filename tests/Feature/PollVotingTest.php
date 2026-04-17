@@ -2,7 +2,7 @@
 
 namespace Tests\Feature;
 
-use App\Jobs\ProcessPollVote;
+use App\Events\VoteCountUpdated;
 use App\Models\Guest;
 use App\Models\Poll;
 use App\Models\PollOption;
@@ -10,7 +10,7 @@ use App\Models\User;
 use App\Models\Vote;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Str;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\TestCase;
@@ -25,7 +25,7 @@ class PollVotingTest extends TestCase
         /** @var User $user */
         $user = User::factory()->createOne();
         $deviceId = (string) Str::uuid();
-        Queue::fake();
+        Event::fake([VoteCountUpdated::class]);
 
         $response = $this
             ->actingAs($user)
@@ -34,9 +34,8 @@ class PollVotingTest extends TestCase
                 "poll_option_id" => $firstOption->id,
             ]);
 
-        $response->assertAccepted();
+        $response->assertCreated();
         $response->assertJsonPath("voted_option_id", $firstOption->id);
-        $response->assertJsonPath("message", "Vote queued for processing");
         $response->assertJsonPath("total_votes", 1);
         $response->assertJsonFragment([
             "id" => $firstOption->id,
@@ -46,25 +45,29 @@ class PollVotingTest extends TestCase
             "id" => $secondOption->id,
             "votes_count" => 0,
         ]);
-        Queue::assertPushedOn("high", ProcessPollVote::class);
-        Queue::assertPushed(ProcessPollVote::class, function (
-            ProcessPollVote $job,
-        ) use ($poll, $firstOption, $user, $deviceId): bool {
-            return $job->pollId === $poll->id &&
-                $job->pollOptionId === $firstOption->id &&
-                $job->userId === $user->id &&
-                $job->deviceId === $deviceId &&
-                $job->ip === "127.0.0.1";
+        Event::assertDispatched(VoteCountUpdated::class, function (
+            VoteCountUpdated $event,
+        ) use ($poll, $firstOption, $secondOption): bool {
+            return $event->pollId === $poll->id &&
+                $event->totalVotes === 1 &&
+                collect($event->options)->contains(
+                    fn (array $row) => $row["id"] === $firstOption->id &&
+                        $row["votes_count"] === 1,
+                ) &&
+                collect($event->options)->contains(
+                    fn (array $row) => $row["id"] === $secondOption->id &&
+                        $row["votes_count"] === 0,
+                );
         });
     }
 
-    public function test_user_duplicate_vote_requests_enqueue_only_one_unique_job(): void
+    public function test_user_duplicate_vote_requests_record_only_one_vote(): void
     {
         [$poll, $firstOption, $secondOption] = $this->createPollWithOptions();
         /** @var User $user */
         $user = User::factory()->createOne();
         $deviceId = (string) Str::uuid();
-        Queue::fake();
+        Event::fake([VoteCountUpdated::class]);
 
         $this
             ->actingAs($user)
@@ -72,7 +75,7 @@ class PollVotingTest extends TestCase
             ->postJson(route("polls.vote", $poll), [
                 "poll_option_id" => $firstOption->id,
             ])
-            ->assertAccepted();
+            ->assertCreated();
 
         $response = $this
             ->actingAs($user)
@@ -81,8 +84,10 @@ class PollVotingTest extends TestCase
                 "poll_option_id" => $secondOption->id,
             ]);
 
-        $response->assertAccepted();
-        Queue::assertPushed(ProcessPollVote::class, 1);
+        $response->assertForbidden();
+        $response->assertJsonPath("message", "Already voted");
+        $this->assertSame(1, Vote::query()->count());
+        Event::assertDispatched(VoteCountUpdated::class, 1);
     }
 
     public function test_show_returns_expected_poll_response_format(): void
@@ -125,39 +130,46 @@ class PollVotingTest extends TestCase
             );
     }
 
-    public function test_vote_queues_high_priority_job_for_same_user(): void
+    public function test_authenticated_vote_without_cookie_still_records_vote(): void
     {
         [$poll, $firstOption] = $this->createPollWithOptions();
         /** @var User $user */
         $user = User::factory()->createOne();
-        Queue::fake();
+        Event::fake([VoteCountUpdated::class]);
 
         $this->actingAs($user)
             ->postJson(route("polls.vote", $poll), [
                 "poll_option_id" => $firstOption->id,
             ])
-            ->assertAccepted();
+            ->assertCreated();
 
-        Queue::assertPushedOn("high", ProcessPollVote::class);
+        Event::assertDispatched(VoteCountUpdated::class);
+        $this->assertSame(1, Vote::query()->count());
     }
 
-    public function test_vote_queues_job_with_guest_ip_payload(): void
+    public function test_guest_can_vote_with_device_cookie(): void
     {
         [$poll, $firstOption] = $this->createPollWithOptions();
         $deviceId = (string) Str::uuid();
-        Queue::fake();
+        Event::fake([VoteCountUpdated::class]);
 
         $this->withServerVariables(["HTTP_COOKIE" => "poll_device_id={$deviceId}"])
             ->postJson(route("polls.vote", $poll), ["poll_option_id" => $firstOption->id])
-            ->assertAccepted();
+            ->assertCreated();
 
-        Queue::assertPushed(ProcessPollVote::class, function (
-            ProcessPollVote $job,
-        ) use ($deviceId): bool {
-            return $job->userId === null &&
-                $job->deviceId === $deviceId &&
-                $job->ip === "127.0.0.1";
-        });
+        Event::assertDispatched(VoteCountUpdated::class);
+        $guest = Guest::query()
+            ->where("device_id", $deviceId)
+            ->whereNull("user_id")
+            ->first();
+        $this->assertNotNull($guest);
+        $this->assertTrue(
+            Vote::query()
+                ->where("poll_id", $poll->id)
+                ->where("guest_id", $guest->id)
+                ->where("poll_option_id", $firstOption->id)
+                ->exists(),
+        );
     }
 
     public function test_feed_cache_is_written_forever(): void
@@ -249,21 +261,21 @@ class PollVotingTest extends TestCase
             ->postJson(route("polls.vote", $polls[0][0]), [
                 "poll_option_id" => $polls[0][1]->id,
             ])
-            ->assertAccepted();
+            ->assertCreated();
 
         $this->actingAs($user)
             ->withServerVariables(["HTTP_COOKIE" => "poll_device_id={$deviceId}"])
             ->postJson(route("polls.vote", $polls[1][0]), [
                 "poll_option_id" => $polls[1][1]->id,
             ])
-            ->assertAccepted();
+            ->assertCreated();
 
         $this->actingAs($user)
             ->withServerVariables(["HTTP_COOKIE" => "poll_device_id={$deviceId}"])
             ->postJson(route("polls.vote", $polls[2][0]), [
                 "poll_option_id" => $polls[2][1]->id,
             ])
-            ->assertAccepted();
+            ->assertCreated();
 
         $this->actingAs($user)
             ->withServerVariables(["HTTP_COOKIE" => "poll_device_id={$deviceId}"])

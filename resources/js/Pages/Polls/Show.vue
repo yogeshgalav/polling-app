@@ -73,10 +73,19 @@ async function onVote(optionId) {
         <header class="top">
             <Link :href="route('polls.index')" class="back">← All polls</Link>
             <nav v-if="page.props.auth.user">
-                <Link :href="route('dashboard')">Dashboard</Link>
+                <Link :href="route('profile.edit')" class="navbtn">Profile</Link>
+                <Link
+                    :href="route('logout')"
+                    method="post"
+                    as="button"
+                    class="navbtn"
+                >
+                    Log out
+                </Link>
             </nav>
             <nav v-else>
-                <Link :href="route('login')">Log in</Link>
+                <Link :href="route('login')" class="navbtn">Log in</Link>
+                <Link :href="route('register')" class="navbtn">Register</Link>
             </nav>
         </header>
 
@@ -104,21 +113,31 @@ async function onVote(optionId) {
     border-bottom: 1px solid #e2e8f0;
     background: #fff;
 }
+.top nav {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+}
 .back,
-.top nav a {
+.top nav a,
+.top nav .navbtn {
     font-size: 0.875rem;
     color: #64748b;
     text-decoration: none;
 }
 .back:hover,
-.top nav a:hover {
+.top nav a:hover,
+.top nav .navbtn:hover {
     color: #0f172a;
 }
-.top nav a {
+.top nav a,
+.top nav .navbtn {
     display: inline-block;
     padding: 0.35rem 0.75rem;
     border: 1px solid #e2e8f0;
     border-radius: 0.35rem;
+    background: transparent;
 }
 main {
     max-width: 48rem;

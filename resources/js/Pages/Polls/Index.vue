@@ -169,8 +169,8 @@ async function vote(poll, optionId) {
 <template>
     <Head title="Polls" />
 
-    <div class="min-h-screen bg-slate-50 text-slate-900">
-        <header class="border-b border-slate-200 bg-white">
+    <div class="flex min-h-screen flex-col bg-slate-50 text-slate-900">
+        <header class="shrink-0 border-b border-slate-200 bg-white">
             <div
                 class="mx-auto flex max-w-3xl items-center justify-between px-4 py-4 sm:px-6"
             >
@@ -178,40 +178,58 @@ async function vote(poll, optionId) {
                 <nav class="flex gap-3 text-sm">
                     <Link
                         v-if="page.props.auth.user"
-                        :href="route('dashboard')"
+                        :href="route('profile.edit')"
                         class="rounded-md px-3 py-2 font-medium text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50"
                     >
-                        Dashboard
+                        Profile
                     </Link>
                     <Link
-                        v-else
+                        v-if="page.props.auth.user"
+                        :href="route('logout')"
+                        method="post"
+                        as="button"
+                        class="rounded-md px-3 py-2 font-medium text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50"
+                    >
+                        Log out
+                    </Link>
+                    <Link
+                        v-if="!page.props.auth.user"
                         :href="route('login')"
                         class="rounded-md px-3 py-2 font-medium text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50"
                     >
                         Log in
                     </Link>
+                    <Link
+                        v-if="!page.props.auth.user"
+                        :href="route('register')"
+                        class="rounded-md px-3 py-2 font-medium text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50"
+                    >
+                        Register
+                    </Link>
                 </nav>
             </div>
         </header>
 
-        <main class="mx-auto max-w-3xl px-4 pb-12 pt-6 sm:px-6">
+        <main
+            class="mx-auto flex w-full max-w-3xl flex-1 flex-col min-h-0 px-4 pt-4 sm:px-6"
+        >
             <p
                 v-if="voteError"
-                class="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+                class="mb-4 shrink-0 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"
             >
                 {{ voteError }}
             </p>
 
             <div
-                class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
-                style="height: calc(100vh - 11rem)"
+                class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
             >
                 <DynamicScroller
+                    v-if="items.length"
                     ref="scrollerRef"
                     :items="items"
                     key-field="id"
                     :min-item-size="240"
-                    class="h-full"
+                    class="min-h-0 flex-1"
                 >
                     <template #default="{ item, index, active }">
                         <DynamicScrollerItem
@@ -233,20 +251,25 @@ async function vote(poll, optionId) {
                         </DynamicScrollerItem>
                     </template>
                 </DynamicScroller>
+                <p
+                    v-else-if="!loadingMore"
+                    class="flex flex-1 items-center justify-center p-8 text-center text-slate-500"
+                >
+                    No polls yet. Check back later.
+                </p>
+                <p
+                    v-if="loadingMore"
+                    class="shrink-0 border-t border-slate-100 px-3 py-2 text-center text-sm text-slate-500"
+                >
+                    Loading more…
+                </p>
+                <p
+                    v-if="loadError"
+                    class="shrink-0 border-t border-slate-100 px-3 py-2 text-center text-sm text-red-600"
+                >
+                    {{ loadError }}
+                </p>
             </div>
-
-            <p v-if="loadingMore" class="mt-4 text-center text-sm text-slate-500">
-                Loading more…
-            </p>
-            <p v-if="loadError" class="mt-2 text-center text-sm text-red-600">
-                {{ loadError }}
-            </p>
-            <p
-                v-if="!items.length && !loadingMore"
-                class="mt-8 text-center text-slate-500"
-            >
-                No polls yet. Check back later.
-            </p>
         </main>
     </div>
 </template>

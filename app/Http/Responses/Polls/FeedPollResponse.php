@@ -23,7 +23,7 @@ class FeedPollResponse
             "total_votes" => (int) $poll->options->sum("votes_count"),
             "options" => $this->pollOptionResponse->collection(
                 $poll->options,
-                includeVoteCounts: false,
+                includeVoteCounts: true,
             ),
         ];
     }

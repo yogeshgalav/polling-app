@@ -5,16 +5,18 @@ namespace App\Http\Controllers;
 use App\Http\Requests\VoteRequest;
 use App\Http\Responses\Polls\FeedPollResponse;
 use App\Http\Responses\Polls\ShowPollResponse;
-use App\Jobs\ProcessPollVote;
-use App\Models\Guest;
+use App\Events\VoteCountUpdated;
 use App\Models\Poll;
 use App\Models\PollOption;
 use App\Models\Vote;
 use App\Repositories\GuestRepo;
 use App\Repositories\VoteRepo;
-use Illuminate\Support\Facades\Cache;
+use App\Support\PollDeviceId;
+use Illuminate\Contracts\Cache\LockTimeoutException;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 
 class PollController extends Controller
@@ -27,8 +29,7 @@ class PollController extends Controller
 
     public function index(Request $request)
     {
-        $deviceId =
-            (string) ($request->cookie("poll_device_id") ?? Str::uuid());
+        $deviceId = PollDeviceId::get($request);
 
         return Inertia::render("Polls/Index", [
             "polls" => $this->pollFeed($request, $deviceId),
@@ -38,8 +39,7 @@ class PollController extends Controller
     public function show(Request $request, Poll $poll)
     {
         $poll->load("options");
-        $deviceId =
-            (string) ($request->cookie("poll_device_id") ?? Str::uuid());
+        $deviceId = PollDeviceId::get($request);
         $guest = GuestRepo::find($request->user()?->id, $deviceId);
         $votedOptionId =
             $guest === null
@@ -57,8 +57,7 @@ class PollController extends Controller
 
     public function feed(Request $request)
     {
-        $deviceId =
-            (string) ($request->cookie("poll_device_id") ?? Str::uuid());
+        $deviceId = PollDeviceId::get($request);
 
         return response()->json($this->pollFeed($request, $deviceId));
     }
@@ -66,40 +65,104 @@ class PollController extends Controller
     public function vote(VoteRequest $request, Poll $poll)
     {
         $validated = $request->validated();
-        $selectedOptionId = (int) $validated["poll_option_id"];
-        $deviceId = (string) $request->cookie("poll_device_id");
+        $userId = $request->user()?->id;
+        $deviceId = PollDeviceId::get($request);
+        $ip = $request->ip();
 
-        $poll->loadMissing("options");
-        $currentTotalVotes = (int) $poll->options->sum("votes_count");
+        PollOption::query()
+            ->whereKey($validated["poll_option_id"])
+            ->where("poll_id", $poll->id)
+            ->firstOrFail();
+
+        $guest = GuestRepo::firstOrCreateByUserOrDeviceId(
+            $userId,
+            $deviceId !== "" ? $deviceId : null,
+            $ip,
+            $request->userAgent(),
+        );
+
+        $lockKey = "poll:{$poll->id}:guest:{$guest->id}:vote";
+        $lockTtlSeconds = 10;
+        $waitSeconds = 3;
+
+        try {
+            $result = Cache::lock($lockKey, $lockTtlSeconds)->block(
+                $waitSeconds,
+                function () use ($poll, $guest, $validated): array {
+                    $alreadyVoted = Vote::query()
+                        ->where("poll_id", $poll->id)
+                        ->where("guest_id", $guest->id)
+                        ->exists();
+
+                    if ($alreadyVoted) {
+                        return ["already_voted" => true];
+                    }
+
+                    try {
+                        DB::transaction(function () use ($poll, $guest, $validated): void {
+                            $option = PollOption::query()
+                                ->whereKey($validated["poll_option_id"])
+                                ->where("poll_id", $poll->id)
+                                ->lockForUpdate()
+                                ->firstOrFail();
+
+                            Vote::query()->create([
+                                "poll_id" => $poll->id,
+                                "poll_option_id" => $option->id,
+                                "guest_id" => $guest->id,
+                            ]);
+
+                            $option->increment("votes_count");
+                        });
+                    } catch (QueryException $e) {
+                        if (($e->errorInfo[0] ?? null) === "23000") {
+                            return ["already_voted" => true];
+                        }
+
+                        throw $e;
+                    }
+
+                    return ["already_voted" => false];
+                },
+            );
+        } catch (LockTimeoutException) {
+            return response()->json(
+                ["message" => "Vote is being processed. Please retry."],
+                429,
+            );
+        }
+
+        if ($result["already_voted"]) {
+            return response()->json(["message" => "Already voted"], 403);
+        }
+
+        $poll->refresh()->load("options");
+        $totalVotes = (int) $poll->options->sum("votes_count");
         $options = $poll->options
             ->map(
-                fn($option) => [
+                fn ($option) => [
                     "id" => $option->id,
-                    "votes_count" =>
-                        (int) $option->votes_count +
-                        ($option->id === $selectedOptionId ? 1 : 0),
+                    "votes_count" => (int) $option->votes_count,
                 ],
             )
             ->values()
             ->all();
 
-        ProcessPollVote::dispatch(
-            pollId: $poll->id,
-            pollOptionId: $selectedOptionId,
-            userId: $request->user()?->id,
-            deviceId: $deviceId,
-            ip: (string) $request->ip(),
-            userAgent: $request->userAgent(),
-        )->onQueue("high");
+        broadcast(
+            new VoteCountUpdated(
+                pollId: $poll->id,
+                totalVotes: $totalVotes,
+                options: $options,
+            ),
+        );
 
         return response()->json(
             [
-                "message" => "Vote queued for processing",
-                "voted_option_id" => $selectedOptionId,
-                "total_votes" => $currentTotalVotes + 1,
+                "voted_option_id" => (int) $validated["poll_option_id"],
+                "total_votes" => $totalVotes,
                 "options" => $options,
             ],
-            202,
+            201,
         );
     }
 

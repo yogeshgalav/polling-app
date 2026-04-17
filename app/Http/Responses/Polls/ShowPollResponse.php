@@ -13,8 +13,6 @@ class ShowPollResponse
 
     public function __invoke(Poll $poll, ?int $votedOptionId): array
     {
-        $includeVoteCounts = $votedOptionId !== null;
-
         return [
             "id" => $poll->id,
             "title" => $poll->title,
@@ -25,7 +23,7 @@ class ShowPollResponse
             "total_votes" => (int) $poll->options->sum("votes_count"),
             "options" => $this->pollOptionResponse->collection(
                 $poll->options,
-                includeVoteCounts: $includeVoteCounts,
+                includeVoteCounts: true,
             ),
         ];
     }
