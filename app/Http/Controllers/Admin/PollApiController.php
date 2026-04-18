@@ -29,10 +29,36 @@ class PollApiController extends Controller
 
         $poll = DB::transaction(function () use ($validated) {
             $baseSlug = Str::slug($validated['title']);
-            $slug = $baseSlug;
-            $n = 1;
-            while (Poll::where('slug', $slug)->exists()) {
-                $slug = $baseSlug.'-'.$n++;
+
+            $existing = Poll::query()
+                ->where(function ($query) use ($baseSlug) {
+                    $query
+                        ->where('slug', $baseSlug)
+                        ->orWhere('slug', 'like', $baseSlug.'-%');
+                })
+                ->pluck('slug');
+
+            if ($existing->isEmpty() || ! $existing->contains($baseSlug)) {
+                $slug = $baseSlug;
+            } else {
+                $max = 0;
+
+                foreach ($existing as $candidate) {
+                    if ($candidate === $baseSlug) {
+                        continue;
+                    }
+
+                    $parts = explode('-', $candidate);
+                    $last = (string) (end($parts) ?: '');
+
+                    if (ctype_digit($last)) {
+                        $max = max($max, (int) $last);
+                    } else {
+                        $max = max($max, 1);
+                    }
+                }
+
+                $slug = $baseSlug.'-'.($max + 1);
             }
 
             $poll = Auth::user()->polls()->create([
