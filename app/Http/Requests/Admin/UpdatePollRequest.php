@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Admin;
 
 use App\Models\Poll;
+use App\Models\PollOption;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Collection;
@@ -67,6 +68,25 @@ class UpdatePollRequest extends FormRequest
             $invalidIds = $incomingIds->diff($existingById->keys());
             if ($invalidIds->isNotEmpty()) {
                 $validator->errors()->add('options', 'One or more choices are invalid.');
+
+                return;
+            }
+
+            $deleteIds = $existingById->keys()->diff($incomingIds);
+            if ($deleteIds->isEmpty()) {
+                return;
+            }
+
+            $optionsToDelete = $poll->options->whereIn('id', $deleteIds->all());
+            $hasVotes = $optionsToDelete->contains(
+                fn (PollOption $option) => (int) $option->votes_count > 0,
+            );
+
+            if ($hasVotes) {
+                $validator->errors()->add(
+                    'options',
+                    "You can't remove a choice that already has votes.",
+                );
             }
         });
     }

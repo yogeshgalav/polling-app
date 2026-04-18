@@ -3,14 +3,14 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Admin\StorePollRequest;
+use App\Http\Requests\Admin\UpdatePollRequest;
 use App\Models\Poll;
 use App\Models\PollOption;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
-use Illuminate\Validation\ValidationException;
 
 class PollApiController extends Controller
 {
@@ -19,13 +19,9 @@ class PollApiController extends Controller
         $this->authorizeResource(Poll::class, 'poll');
     }
 
-    public function store(Request $request)
+    public function store(StorePollRequest $request)
     {
-        $validated = $request->validate([
-            'title' => ['required', 'string', 'max:255'],
-            'options' => ['required', 'array', 'min:2'],
-            'options.*' => ['required', 'string', 'distinct', 'max:255'],
-        ]);
+        $validated = $request->validated();
 
         $poll = DB::transaction(function () use ($validated) {
             $baseSlug = Str::slug($validated['title']);
@@ -88,41 +84,10 @@ class PollApiController extends Controller
         ]);
     }
 
-    public function update(Request $request, Poll $poll)
+    public function update(UpdatePollRequest $request, Poll $poll)
     {
-        $validated = $request->validate([
-            'title' => ['required', 'string', 'max:255'],
-            'options' => ['required', 'array', 'min:2'],
-            'options.*.id' => ['nullable', 'integer'],
-            'options.*.label' => ['required', 'string', 'max:255'],
-        ]);
-
-        $incomingOptions = collect($validated['options'])
-            ->map(function (array $option): array {
-                $label = trim((string) ($option['label'] ?? ''));
-
-                return [
-                    'id' => isset($option['id']) ? (int) $option['id'] : null,
-                    'label' => $label,
-                ];
-            })
-            ->filter(fn (array $option) => $option['label'] !== '')
-            ->values();
-
-        if ($incomingOptions->count() < 2) {
-            throw ValidationException::withMessages([
-                'options' => 'Enter at least two different choices.',
-            ]);
-        }
-
-        $labels = $incomingOptions->pluck('label')->map(
-            fn ($s) => mb_strtolower($s),
-        );
-        if ($labels->count() !== $labels->unique()->count()) {
-            throw ValidationException::withMessages([
-                'options' => 'Choices must be distinct.',
-            ]);
-        }
+        $validated = $request->validated();
+        $incomingOptions = $request->normalizedOptions();
 
         DB::transaction(function () use (
             $poll,
@@ -136,13 +101,6 @@ class PollApiController extends Controller
                 ->filter(fn ($id) => $id !== null)
                 ->map(fn ($id) => (int) $id)
                 ->values();
-
-            $invalidIds = $incomingIds->diff($existingById->keys());
-            if ($invalidIds->isNotEmpty()) {
-                throw ValidationException::withMessages([
-                    'options' => 'One or more choices are invalid.',
-                ]);
-            }
 
             $poll->update([
                 'title' => trim($validated['title']),
@@ -165,20 +123,6 @@ class PollApiController extends Controller
             $deleteIds = $existingById->keys()->diff($incomingIds);
 
             if ($deleteIds->isNotEmpty()) {
-                $optionsToDelete = $poll->options->whereIn(
-                    'id',
-                    $deleteIds->all(),
-                );
-                $hasVotes = $optionsToDelete->contains(
-                    fn (PollOption $option) => (int) $option->votes_count > 0,
-                );
-
-                if ($hasVotes) {
-                    throw ValidationException::withMessages([
-                        'options' => "You can't remove a choice that already has votes.",
-                    ]);
-                }
-
                 PollOption::query()->whereIn('id', $deleteIds->all())->delete();
             }
 
