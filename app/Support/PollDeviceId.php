@@ -15,9 +15,9 @@ final class PollDeviceId
      */
     public static function read(Request $request): ?string
     {
-        $fromBag = $request->cookie(self::COOKIE_NAME);
-        if (is_string($fromBag) && $fromBag !== "") {
-            return $fromBag;
+        $cookie_device_id = $request->cookie(self::COOKIE_NAME);
+        if (!empty($cookie_device_id)) {
+            return $cookie_device_id;
         }
 
         $raw =
