@@ -7,6 +7,7 @@ use App\Http\Requests\Admin\StorePollRequest;
 use App\Http\Requests\Admin\UpdatePollRequest;
 use App\Models\Poll;
 use App\Models\PollOption;
+use App\Models\Vote;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -108,9 +109,30 @@ class PollApiController extends Controller
 
             foreach ($incomingOptions as $option) {
                 if ($option['id'] !== null) {
-                    $existingById
-                        ->get($option['id'])
-                        ?->update(['label' => $option['label']]);
+                    /** @var PollOption|null $existing */
+                    $existing = $existingById->get($option['id']);
+
+                    if ($existing === null) {
+                        continue;
+                    }
+
+                    $nextLabel = $option['label'];
+                    $labelChanged = $existing->label !== $nextLabel;
+
+                    if ($labelChanged) {
+                        Vote::query()
+                            ->where('poll_id', $poll->id)
+                            ->where('poll_option_id', $existing->id)
+                            ->whereNull('deleted_at')
+                            ->delete();
+
+                        $existing->update([
+                            'label' => $nextLabel,
+                            'votes_count' => 0,
+                        ]);
+                    } else {
+                        $existing->update(['label' => $nextLabel]);
+                    }
 
                     continue;
                 }
@@ -123,6 +145,16 @@ class PollApiController extends Controller
             $deleteIds = $existingById->keys()->diff($incomingIds);
 
             if ($deleteIds->isNotEmpty()) {
+                Vote::query()
+                    ->where('poll_id', $poll->id)
+                    ->whereIn('poll_option_id', $deleteIds->all())
+                    ->whereNull('deleted_at')
+                    ->delete();
+
+                PollOption::query()
+                    ->whereIn('id', $deleteIds->all())
+                    ->update(['votes_count' => 0]);
+
                 PollOption::query()->whereIn('id', $deleteIds->all())->delete();
             }
 

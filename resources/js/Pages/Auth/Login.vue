@@ -56,6 +56,7 @@ const submit = async () => {
 
                 <TextInput
                     id="email"
+                    name="email"
                     type="email"
                     class="mt-1 block w-full"
                     v-model="form.email"
@@ -72,6 +73,7 @@ const submit = async () => {
 
                 <TextInput
                     id="password"
+                    name="password"
                     type="password"
                     class="mt-1 block w-full"
                     v-model="form.password"

@@ -3,7 +3,6 @@
 namespace App\Http\Requests\Admin;
 
 use App\Models\Poll;
-use App\Models\PollOption;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Collection;
@@ -73,21 +72,7 @@ class UpdatePollRequest extends FormRequest
             }
 
             $deleteIds = $existingById->keys()->diff($incomingIds);
-            if ($deleteIds->isEmpty()) {
-                return;
-            }
-
-            $optionsToDelete = $poll->options->whereIn('id', $deleteIds->all());
-            $hasVotes = $optionsToDelete->contains(
-                fn (PollOption $option) => (int) $option->votes_count > 0,
-            );
-
-            if ($hasVotes) {
-                $validator->errors()->add(
-                    'options',
-                    "You can't remove a choice that already has votes.",
-                );
-            }
+            // Deleting options (even with votes) is allowed; backend will clean up votes.
         });
     }
 

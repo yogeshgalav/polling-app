@@ -129,21 +129,11 @@ function createdLabel(iso) {
                                     Results
                                 </Link>
                                 <Link
-                                    v-if="!poll.has_votes"
                                     :href="route('admin.polls.edit', poll.slug)"
                                     class="btn-secondary"
                                 >
                                     Edit
                                 </Link>
-                                <button
-                                    v-else
-                                    type="button"
-                                    class="btn-secondary opacity-50 cursor-not-allowed"
-                                    disabled
-                                    title="This poll already has votes and can't be edited."
-                                >
-                                    Edit
-                                </button>
                                 <button
                                     type="button"
                                     class="btn-danger"

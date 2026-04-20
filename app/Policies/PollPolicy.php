@@ -24,13 +24,7 @@ class PollPolicy
 
     public function update(User $user, Poll $poll): bool
     {
-        if (!$this->view($user, $poll)) {
-            return false;
-        }
-
-        $hasVotes = $poll->options()->where("votes_count", ">", 0)->exists();
-
-        return !$hasVotes;
+        return $this->view($user, $poll);
     }
 
     public function delete(User $user, Poll $poll): bool

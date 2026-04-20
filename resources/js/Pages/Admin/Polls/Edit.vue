@@ -12,6 +12,16 @@ const props = defineProps({
     poll: { type: Object, required: true },
 });
 
+const originalOptionsById = new Map(
+    (props.poll.options ?? []).map((o) => [
+        o.id,
+        {
+            label: String(o.label ?? '').trim(),
+            votes_count: Number(o.votes_count ?? 0),
+        },
+    ]),
+);
+
 const form = ref({
     title: props.poll.title ?? '',
     options: (props.poll.options ?? []).map((o) => ({
@@ -35,8 +45,12 @@ function removeOption(index) {
     if (form.value.options.length <= 2) {
         return;
     }
-    if (Number(form.value.options[index]?.votes_count ?? 0) > 0) {
-        return;
+    const votes = Number(form.value.options[index]?.votes_count ?? 0);
+    if (votes > 0) {
+        const ok = window.confirm(
+            `Removing this choice will also remove its ${votes} vote${votes === 1 ? '' : 's'}. Continue?`,
+        );
+        if (!ok) return;
     }
     form.value.options.splice(index, 1);
 }
@@ -48,6 +62,30 @@ function setErrors(nextErrors) {
 async function submit() {
     clientError.value = '';
     setErrors({});
+
+    const removedOptionIds = Array.from(originalOptionsById.keys()).filter(
+        (id) => !form.value.options.some((o) => Number(o.id) === Number(id)),
+    );
+    const removedVotes = removedOptionIds.reduce((sum, id) => {
+        const row = originalOptionsById.get(id);
+        return sum + Number(row?.votes_count ?? 0);
+    }, 0);
+    const renamedVotes = form.value.options.reduce((sum, o) => {
+        if (o.id == null) return sum;
+        const original = originalOptionsById.get(o.id);
+        if (!original) return sum;
+        const nextLabel = String(o.label ?? '').trim();
+        const labelChanged = original.label !== nextLabel;
+        if (!labelChanged) return sum;
+        return sum + Number(original.votes_count ?? 0);
+    }, 0);
+    const votesToRemove = removedVotes + renamedVotes;
+    if (votesToRemove > 0) {
+        const ok = window.confirm(
+            `This edit will remove ${votesToRemove} vote${votesToRemove === 1 ? '' : 's'} from changed/removed choices. Continue?`,
+        );
+        if (!ok) return;
+    }
 
     const normalized = form.value.options
         .map((o) => ({
@@ -138,8 +176,8 @@ async function submit() {
                     <div>
                         <InputLabel value="Choices" />
                         <p class="mt-1 text-sm text-gray-500">
-                            You can rename choices freely. You can only remove a choice if it has
-                            0 votes.
+                            If you rename or remove a choice that already has votes, those votes
+                            will be removed. Other choices keep their votes.
                         </p>
 
                         <ul class="mt-3 space-y-2">
@@ -166,7 +204,7 @@ async function submit() {
                                     v-if="canRemoveAny"
                                     type="button"
                                     class="shrink-0"
-                                    :disabled="Number(opt.votes_count ?? 0) > 0"
+                                    :disabled="processing"
                                     @click="removeOption(i)"
                                 >
                                     Remove

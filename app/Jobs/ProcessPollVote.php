@@ -61,6 +61,7 @@ class ProcessPollVote implements ShouldQueue, ShouldBeUnique
             $alreadyVoted = Vote::query()
                 ->where("poll_id", $poll->id)
                 ->where("guest_id", $guest->id)
+                ->whereNull("deleted_at")
                 ->exists();
 
             if ($alreadyVoted) {

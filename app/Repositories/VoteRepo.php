@@ -21,6 +21,7 @@ class VoteRepo
         $votesByPollId = Vote::query()
             ->where("guest_id", $guest->id)
             ->whereIn("poll_id", $pollIds)
+            ->whereNull("deleted_at")
             ->pluck("poll_option_id", "poll_id");
 
         $votedPollIds = $votesByPollId

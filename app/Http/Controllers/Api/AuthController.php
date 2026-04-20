@@ -11,6 +11,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\Rules;
 
 class AuthController extends Controller
@@ -32,13 +33,16 @@ class AuthController extends Controller
         ]);
 
         $isAdmin = (bool) ($validated["is_admin"] ?? false);
+        $hashedPassword = Hash::make($validated["password"]);
 
-        $user = DB::transaction(function () use ($validated, $isAdmin) {
-            $user = User::create([
-                "name" => $validated["name"],
-                "email" => $validated["email"],
-                "password" => Hash::make($validated["password"]),
-            ]);
+        $user = DB::transaction(function () use ($validated, $isAdmin, $hashedPassword) {
+
+            $user = new User();
+            $user->name = $validated["name"];
+            $user->email = $validated["email"];
+            $user->password = $hashedPassword;
+
+            $user->save();
 
             if ($isAdmin) {
                 $user->admin()->create();
@@ -94,11 +98,11 @@ class AuthController extends Controller
 
     public function logout(Request $request)
     {
-        Auth::guard("web")->logout();
+        Auth::logout();
         $request->session()->invalidate();
         $request->session()->regenerateToken();
 
-        return response()->noContent();
+        return redirect()->route('login');
     }
 }
 

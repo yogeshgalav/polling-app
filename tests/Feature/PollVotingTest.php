@@ -19,6 +19,95 @@ class PollVotingTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_editing_or_removing_an_option_soft_deletes_only_that_options_votes(): void
+    {
+        /** @var User $admin */
+        $admin = User::factory()->createOne();
+        $admin->forceFill(["role" => "admin"])->save();
+
+        /** @var Poll $poll */
+        $poll = Poll::query()->create([
+            "title" => "Favorite language?",
+            "slug" => Str::slug("favorite-language-" . Str::random(8)),
+            "created_by" => $admin->id,
+            "expires_at" => now()->addDay(),
+        ]);
+
+        $a = PollOption::query()->create([
+            "poll_id" => $poll->id,
+            "label" => "PHP",
+            "votes_count" => 2,
+        ]);
+        $b = PollOption::query()->create([
+            "poll_id" => $poll->id,
+            "label" => "JavaScript",
+            "votes_count" => 3,
+        ]);
+        $c = PollOption::query()->create([
+            "poll_id" => $poll->id,
+            "label" => "Go",
+            "votes_count" => 5,
+        ]);
+
+        $votes = collect(range(1, 10))->map(function () use ($poll): Guest {
+            return Guest::query()->create([
+                "user_id" => null,
+                "device_id" => (string) Str::uuid(),
+                "ip" => "127.0.0.1",
+                "user_agent" => "PHPUnit",
+            ]);
+        });
+
+        foreach ($votes->take(2) as $guest) {
+            Vote::query()->create([
+                "poll_id" => $poll->id,
+                "poll_option_id" => $a->id,
+                "guest_id" => $guest->id,
+            ]);
+        }
+        foreach ($votes->slice(2, 3) as $guest) {
+            Vote::query()->create([
+                "poll_id" => $poll->id,
+                "poll_option_id" => $b->id,
+                "guest_id" => $guest->id,
+            ]);
+        }
+        foreach ($votes->slice(5, 5) as $guest) {
+            Vote::query()->create([
+                "poll_id" => $poll->id,
+                "poll_option_id" => $c->id,
+                "guest_id" => $guest->id,
+            ]);
+        }
+
+        $this->assertSame(10, Vote::query()->count());
+        $this->assertSame(0, Vote::onlyTrashed()->count());
+
+        $this->actingAs($admin)->putJson(route("admin.api.polls.update", $poll), [
+            "title" => "Favorite language? (edited)",
+            "options" => [
+                ["id" => $a->id, "label" => "PHP 8"], // rename -> clear votes
+                ["id" => $b->id, "label" => "JavaScript"], // unchanged -> keep votes
+                // $c removed -> clear votes + soft delete option
+            ],
+        ])->assertOk();
+
+        $this->assertSame(7, Vote::query()->count());
+        $this->assertSame(3, Vote::onlyTrashed()->count());
+
+        $this->assertSame(3, Vote::query()->where("poll_option_id", $b->id)->count());
+        $this->assertSame(0, Vote::onlyTrashed()->where("poll_option_id", $b->id)->count());
+
+        $a->refresh();
+        $b->refresh();
+        $this->assertSame("PHP 8", $a->label);
+        $this->assertSame(0, (int) $a->votes_count);
+        $this->assertSame(3, (int) $b->votes_count);
+
+        $this->assertSoftDeleted("poll_options", ["id" => $c->id]);
+        $this->assertSame(0, (int) PollOption::withTrashed()->find($c->id)->votes_count);
+    }
+
     public function test_user_can_vote_successfully(): void
     {
         [$poll, $firstOption, $secondOption] = $this->createPollWithOptions();

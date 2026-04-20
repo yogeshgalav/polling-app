@@ -13,5 +13,5 @@ Route::middleware('guest')->group(function () {
 Route::middleware("auth:sanctum")->group(function () {
     Route::put('password', [PasswordController::class, 'update'])->name('password.update');
 
-    Route::post('logout', [ApiAuthController::class, 'logout'])->name('logout');
+    Route::get('logout', [ApiAuthController::class, 'logout'])->name('logout');
 });

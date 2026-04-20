@@ -4,9 +4,12 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Vote extends Model
 {
+    use SoftDeletes;
+
     protected $fillable = ["poll_id", "poll_option_id", "guest_id"];
 
     public function poll()
