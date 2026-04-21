@@ -7,6 +7,7 @@ use App\Models\Poll;
 use App\Models\PollOption;
 use App\Models\Vote;
 use App\Repositories\GuestRepo;
+use App\Support\CachedPollIds;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Cache;
@@ -95,6 +96,8 @@ class CastPollVoteAction
             return ['status' => 'already_voted'];
         }
 
+        $this->refreshCachedPollAfterVote($poll->id, $pollOptionId);
+
         $poll->refresh()->load('options');
         $totalVotes = (int) $poll->options->sum('votes_count');
         $options = $poll->options
@@ -121,5 +124,65 @@ class CastPollVoteAction
             'total_votes' => $totalVotes,
             'options' => $options,
         ];
+    }
+
+    private function refreshCachedPollAfterVote(int $pollId, int $pollOptionId): void
+    {
+        // Keep DB ordering and cachedPollIds ordering in sync:
+        // voting updates counts, but does NOT reorder cachedPollIds.
+        if (! CachedPollIds::contains($pollId)) {
+            return;
+        }
+
+        $key = "poll:{$pollId}";
+        $cached = Cache::get($key);
+
+        if (is_array($cached) && isset($cached['options']) && is_array($cached['options'])) {
+            $cached['voted_option_id'] = null;
+            $cached['total_votes'] = (int) ($cached['total_votes'] ?? 0) + 1;
+            $cached['options'] = collect($cached['options'])
+                ->map(function ($opt) use ($pollOptionId) {
+                    if (! is_array($opt)) {
+                        return $opt;
+                    }
+                    if ((int) ($opt['id'] ?? 0) !== $pollOptionId) {
+                        return $opt;
+                    }
+                    $opt['votes_count'] = (int) ($opt['votes_count'] ?? 0) + 1;
+                    return $opt;
+                })
+                ->values()
+                ->all();
+
+            Cache::put($key, $cached, now()->addSeconds(CachedPollIds::TTL_SECONDS));
+            return;
+        }
+
+        // Cache miss or unexpected payload; rebuild minimal feed payload from DB.
+        $poll = Poll::query()->with('options')->find($pollId);
+        if ($poll === null) {
+            Cache::forget($key);
+            return;
+        }
+
+        $options = $poll->options
+            ->map(fn ($opt) => [
+                'id' => (int) $opt->id,
+                'label' => (string) $opt->label,
+                'votes_count' => (int) $opt->votes_count,
+            ])
+            ->values()
+            ->all();
+
+        Cache::put($key, [
+            'id' => (int) $poll->id,
+            'title' => (string) $poll->title,
+            'slug' => (string) $poll->slug,
+            'is_open' => $poll->isOpen(),
+            'expires_at' => $poll->expires_at?->toIso8601String(),
+            'voted_option_id' => null,
+            'total_votes' => (int) collect($options)->sum('votes_count'),
+            'options' => $options,
+        ], now()->addSeconds(CachedPollIds::TTL_SECONDS));
     }
 }

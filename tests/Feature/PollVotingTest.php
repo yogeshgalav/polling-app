@@ -277,7 +277,14 @@ class PollVotingTest extends TestCase
         Cache::shouldReceive("rememberForever")
             ->once()
             ->withArgs(function (string $key, callable $callback): bool {
-                return $key === "polls:1" && is_callable($callback);
+                return $key === "cachedPollIds" && is_callable($callback);
+            })
+            ->andReturnUsing(fn (string $key, callable $callback) => $callback());
+
+        Cache::shouldReceive("rememberForever")
+            ->once()
+            ->withArgs(function (string $key, callable $callback): bool {
+                return str_starts_with($key, "poll:") && is_callable($callback);
             })
             ->andReturnUsing(fn (string $key, callable $callback) => $callback());
 

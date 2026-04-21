@@ -9,7 +9,6 @@ use App\Models\Poll;
 use App\Models\PollOption;
 use App\Models\Vote;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -67,10 +66,6 @@ class PollApiController extends Controller
                 $poll->options()->create([
                     'label' => $option,
                 ]);
-            }
-
-            for ($page = 1; $page <= 10; $page++) {
-                Cache::forget('polls:'.$page);
             }
 
             return $poll;
@@ -157,10 +152,6 @@ class PollApiController extends Controller
 
                 PollOption::query()->whereIn('id', $deleteIds->all())->delete();
             }
-
-            for ($page = 1; $page <= 10; $page++) {
-                Cache::forget('polls:'.$page);
-            }
         });
 
         $poll->refresh();
@@ -177,10 +168,6 @@ class PollApiController extends Controller
     public function destroy(Poll $poll)
     {
         $poll->delete();
-
-        for ($page = 1; $page <= 10; $page++) {
-            Cache::forget('polls:'.$page);
-        }
 
         return response()->noContent();
     }

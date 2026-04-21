@@ -13,6 +13,7 @@ use App\Events\UserLoginEvent;
 use App\Events\UserRegisterEvent;
 use App\Listeners\AttachPollDeviceGuestToUser;
 use App\Models\Poll;
+use App\Observers\PollObserver;
 use App\Policies\PollPolicy;
 use App\Support\PollDeviceId;
 
@@ -37,6 +38,7 @@ class AppServiceProvider extends ServiceProvider
         );
 
         Gate::policy(Poll::class, PollPolicy::class);
+        Poll::observe(PollObserver::class);
 
         RateLimiter::for("api", function (Request $request) {
             return Limit::perMinute(60)->by(

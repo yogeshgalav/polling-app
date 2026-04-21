@@ -14,6 +14,19 @@ if (csrf) {
     );
 }
 
+// For Sanctum SPA auth, prefer the XSRF cookie/header pair.
+// Laravel checks X-CSRF-TOKEN before X-XSRF-TOKEN; a stale meta token can cause CSRF mismatch in production.
+window.axios.interceptors.request.use((config) => {
+    const url = String(config?.url ?? '');
+    if (url.startsWith('/api/') || url.startsWith('/sanctum/csrf-cookie')) {
+        if (config?.headers) {
+            delete config.headers['X-CSRF-TOKEN'];
+            delete config.headers['x-csrf-token'];
+        }
+    }
+    return config;
+});
+
 window.Pusher = Pusher;
 
 const pusherKey = import.meta.env.VITE_PUSHER_APP_KEY;

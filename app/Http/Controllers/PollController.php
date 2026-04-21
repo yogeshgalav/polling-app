@@ -10,6 +10,7 @@ use App\Models\Poll;
 use App\Models\Vote;
 use App\Repositories\GuestRepo;
 use App\Repositories\VoteRepo;
+use App\Support\CachedPollIds;
 use App\Support\PollDeviceId;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -17,6 +18,8 @@ use Inertia\Inertia;
 
 class PollController extends Controller
 {
+    private const PER_PAGE = 10;
+
     public function __construct(
         private readonly FeedPollResponse $feedPollResponse,
         private readonly ShowPollResponse $showPollResponse,
@@ -96,47 +99,109 @@ class PollController extends Controller
 
     private function pollFeed(Request $request, string $deviceId): array
     {
-        $pollFeed = null;
+        $page = (int) ($request->page ?? 1);
+        $page = $page > 0 ? $page : 1;
 
-        if (
-            ! app()->isProduction() ||
-            ! preg_match('/^([1-9]|10)$/', $request->page)
-        ) {
-            $pollFeed = $this->paginatedPollFeed();
-        } else {
-            // for production cache feed forever until new poll is created.
-            $pollFeed = Cache::rememberForever(
-                'polls:'.$request->page,
-                fn () => $this->paginatedPollFeed(),
+        // Serve first 50 polls from cache (max 5 pages).
+        if ($page <= (int) ceil(CachedPollIds::LIMIT / self::PER_PAGE)) {
+            $pollFeed = $this->cachedPollFeed($page);
+
+            return $this->voteRepo->appendGuestVotes(
+                $pollFeed,
+                $request->user()?->id,
+                $deviceId,
             );
         }
 
         return $this->voteRepo->appendGuestVotes(
-            $pollFeed,
+            $this->paginatedPollFeed($page),
             $request->user()?->id,
             $deviceId,
         );
     }
 
-    private function paginatedPollFeed(): array
+    private function cachedPollFeed(int $page): array
     {
-        $pollsQuery = Poll::query()
+        $ids = $this->cachedPollIds();
+        $offset = ($page - 1) * self::PER_PAGE;
+        $pageIds = array_slice($ids, $offset, self::PER_PAGE);
+
+        $data = collect($pageIds)
+            ->map(fn (int $pollId) => $this->cachedPoll($pollId))
+            ->filter()
+            ->values()
+            ->all();
+
+        $total = Poll::query()->count();
+        $lastPage = (int) max(1, (int) ceil($total / self::PER_PAGE));
+
+        return [
+            'data' => $data,
+            'current_page' => $page,
+            'last_page' => $lastPage,
+        ];
+    }
+
+    private function cachedPollIds(): array
+    {
+        return CachedPollIds::getOrBuild(function (): array {
+            return Poll::query()
+                ->orderBy('updated_at', 'desc')
+                ->limit(CachedPollIds::LIMIT)
+                ->pluck('id')
+                ->map(fn ($id) => (int) $id)
+                ->values()
+                ->all();
+        });
+    }
+
+    private function cachedPoll(int $pollId): ?array
+    {
+        $key = "poll:{$pollId}";
+
+        $payload = Cache::remember($key, now()->addSeconds(CachedPollIds::TTL_SECONDS), function () use ($pollId): ?array {
+            $poll = Poll::query()->with('options')->find($pollId);
+            if ($poll === null) {
+                return null;
+            }
+
+            return ($this->feedPollResponse)($poll);
+        });
+
+        if (! is_array($payload)) {
+            Cache::forget($key);
+            return null;
+        }
+
+        return $payload;
+    }
+
+    private function paginatedPollFeed(int $page): array
+    {
+        $total = Poll::query()->count();
+        $lastPage = (int) max(1, (int) ceil($total / self::PER_PAGE));
+
+        // For page >= 6, continue AFTER the first 50 cached polls.
+        $offset = CachedPollIds::LIMIT + max(0, $page - 6) * self::PER_PAGE;
+
+        $polls = Poll::query()
             ->with('options')
-            ->orderBy('created_at', 'desc');
+            ->orderBy('updated_at', 'desc')
+            ->offset($offset)
+            ->limit(self::PER_PAGE)
+            ->get();
 
         // if ($request->user() !== null) {
         //     $pollsQuery->where("created_by", "!=", $request->user()->id);
         // }
 
-        $polls = $pollsQuery->paginate(10);
-
         return [
-            'data' => collect($polls->items())
+            'data' => collect($polls)
                 ->map(fn ($poll) => ($this->feedPollResponse)($poll))
                 ->values()
                 ->all(),
-            'current_page' => $polls->currentPage(),
-            'last_page' => $polls->lastPage(),
+            'current_page' => $page,
+            'last_page' => $lastPage,
         ];
     }
 }

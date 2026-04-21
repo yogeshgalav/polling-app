@@ -34,8 +34,10 @@ This app includes several patterns that help under load and when running multipl
 
 ### Caching
 
-- **Poll feed (production)**: For `APP_ENV=production` and **pages 1–10 only**, the JSON feed is cached with **`Cache::rememberForever('polls:{page}', …)`** to cut repeated database work on hot list endpoints. Other environments skip this and always hit the DB.
-- **Invalidation**: When an admin **creates a new poll**, cached keys **`polls:1` … `polls:10`** are cleared so fresh data appears without restarting the app.
+- **Poll feed**: The latest **50 polls** are cached **per poll** under `poll:{id}`. A separate key `cachedPollIds` stores the ordered list of those ids so the first pages can be served without rebuilding the feed.
+- **Invalidation**:
+  - When an admin **creates a new poll**, its id is pushed to the front of `cachedPollIds`, the list is trimmed back to 50 (evicting the last `poll:{id}`), and the new `poll:{id}` payload is inserted.
+  - When a **vote is cast** on a cached poll, the cached `poll:{id}` payload is updated in-place so vote counts stay hot.
 
 ### Real-time updates without polling the API
 
