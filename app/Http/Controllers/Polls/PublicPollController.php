@@ -1,8 +1,9 @@
 <?php
 
-namespace App\Http\Controllers;
+namespace App\Http\Controllers\Polls;
 
 use App\Actions\Polls\CastPollVoteAction;
+use App\Http\Controllers\Controller;
 use App\Http\Requests\VoteRequest;
 use App\Http\Responses\Polls\FeedPollResponse;
 use App\Http\Responses\Polls\ShowPollResponse;
@@ -16,7 +17,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Inertia\Inertia;
 
-class PollController extends Controller
+class PublicPollController extends Controller
 {
     private const PER_PAGE = 10;
 
@@ -191,10 +192,6 @@ class PollController extends Controller
             ->limit(self::PER_PAGE)
             ->get();
 
-        // if ($request->user() !== null) {
-        //     $pollsQuery->where("created_by", "!=", $request->user()->id);
-        // }
-
         return [
             'data' => collect($polls)
                 ->map(fn ($poll) => ($this->feedPollResponse)($poll))
@@ -205,3 +202,4 @@ class PollController extends Controller
         ];
     }
 }
+

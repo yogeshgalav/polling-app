@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Http\Controllers\Api;
+namespace App\Http\Controllers\Auth;
 
 use App\Events\UserLoginEvent;
 use App\Events\UserRegisterEvent;
@@ -11,7 +11,6 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\Rules;
 
 class AuthController extends Controller
@@ -27,7 +26,14 @@ class AuthController extends Controller
     {
         $validated = $request->validate([
             "name" => ["required", "string", "max:255"],
-            "email" => ["required", "string", "lowercase", "email", "max:255", "unique:" . User::class],
+            "email" => [
+                "required",
+                "string",
+                "lowercase",
+                "email",
+                "max:255",
+                "unique:" . User::class,
+            ],
             "password" => ["required", "confirmed", Rules\Password::defaults()],
             "is_admin" => ["nullable", "boolean"],
         ]);
@@ -36,7 +42,6 @@ class AuthController extends Controller
         $hashedPassword = Hash::make($validated["password"]);
 
         $user = DB::transaction(function () use ($validated, $isAdmin, $hashedPassword) {
-
             $user = new User();
             $user->name = $validated["name"];
             $user->email = $validated["email"];
@@ -58,7 +63,9 @@ class AuthController extends Controller
 
         return response()->json([
             "user" => $user,
-            "redirect_to" => $user->isAdmin() ? route("admin.polls.index") : route("polls.index"),
+            "redirect_to" => $user->isAdmin()
+                ? route("admin.polls.index")
+                : route("polls.index"),
         ]);
     }
 
@@ -72,7 +79,12 @@ class AuthController extends Controller
 
         $remember = (bool) ($credentials["remember"] ?? false);
 
-        if (!Auth::attempt(["email" => $credentials["email"], "password" => $credentials["password"]], $remember)) {
+        if (
+            ! Auth::attempt(
+                ["email" => $credentials["email"], "password" => $credentials["password"]],
+                $remember,
+            )
+        ) {
             return response()->json([
                 "message" => "The provided credentials are incorrect.",
                 "errors" => [

@@ -1,7 +1,7 @@
 <?php
 
-use App\Http\Controllers\Auth\PasswordController;
-use App\Http\Controllers\Api\AuthController as ApiAuthController;
+use App\Http\Controllers\Auth\AuthController as ApiAuthController;
+use App\Http\Controllers\Settings\PasswordController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 

@@ -1,22 +1,22 @@
 <?php
 
-use App\Http\Controllers\Admin\PollApiController;
-use App\Http\Controllers\Admin\PollPageController;
-use App\Http\Controllers\PollController;
-use App\Http\Controllers\ProfileController;
-use App\Http\Controllers\RunDeployTasksController;
+use App\Http\Controllers\Internal\RunDeployTasksController;
+use App\Http\Controllers\Polls\Admin\PollApiController;
+use App\Http\Controllers\Polls\Admin\PollPageController;
+use App\Http\Controllers\Polls\PublicPollController;
+use App\Http\Controllers\Settings\ProfileController;
 use App\Models\Poll;
 use Illuminate\Support\Facades\Route;
 
-Route::get('/', [PollController::class, 'index'])->name('polls.index');
+Route::get('/', [PublicPollController::class, 'index'])->name('polls.index');
 Route::redirect('/polls', '/');
-Route::get('/polls/feed', [PollController::class, 'feed'])->name(
+Route::get('/polls/feed', [PublicPollController::class, 'feed'])->name(
     'polls.feed',
 );
-Route::get('/polls/{poll:slug}', [PollController::class, 'show'])->name(
+Route::get('/polls/{poll:slug}', [PublicPollController::class, 'show'])->name(
     'polls.show',
 );
-Route::post('/polls/{poll}/vote', [PollController::class, 'vote'])->name(
+Route::post('/polls/{poll}/vote', [PublicPollController::class, 'vote'])->name(
     'polls.vote',
 )->middleware('throttle:poll-vote');
 

@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Http\Controllers\Admin;
+namespace App\Http\Controllers\Polls\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Poll;
@@ -84,3 +84,4 @@ class PollPageController extends Controller
         ]);
     }
 }
+

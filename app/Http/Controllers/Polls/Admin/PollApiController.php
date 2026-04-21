@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Http\Controllers\Admin;
+namespace App\Http\Controllers\Polls\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\StorePollRequest;
@@ -172,3 +172,4 @@ class PollApiController extends Controller
         return response()->noContent();
     }
 }
+
