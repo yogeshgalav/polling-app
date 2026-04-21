@@ -1,16 +1,41 @@
 <script setup>
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head, Link } from '@inertiajs/vue3';
+import { onBeforeUnmount, onMounted, ref } from 'vue';
 
 const props = defineProps({
     poll: { type: Object, required: true },
 });
+
+const poll = ref(props.poll);
+const channelName = `polls.${props.poll.id}`;
 
 function percent(votes, total) {
     const t = Number(total) || 0;
     if (!t) return 0;
     return Math.round((Number(votes) / t) * 100);
 }
+
+function applyVoteCountUpdate(payload) {
+    if (!poll.value || !payload) {
+        return;
+    }
+
+    poll.value.total_votes = payload.totalVotes;
+    const optionsById = new Map(payload.options.map((option) => [option.id, option]));
+    poll.value.options = poll.value.options.map((option) => {
+        const updated = optionsById.get(option.id);
+        return updated ? { ...option, votes_count: updated.votes_count } : option;
+    });
+}
+
+onMounted(() => {
+    window.Echo?.channel(channelName).listen('.votes.updated', applyVoteCountUpdate);
+});
+
+onBeforeUnmount(() => {
+    window.Echo?.leave(channelName);
+});
 </script>
 
 <template>
