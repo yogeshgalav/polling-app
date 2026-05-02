@@ -15,22 +15,22 @@ This app includes several patterns that help under load and when running multipl
 
 ### Rate limiting
 
-- **Poll voting** (`POST /polls/{poll}/vote`): Custom limiter `poll-vote` — **3 requests per second per IP** (`AppServiceProvider`). The route uses `throttle:poll-vote` middleware.
+- **Poll voting** (`POST /polls/{poll}/vote`): Custom limiter `poll-vote` — **3 requests per second** keyed by **stable poll device cookie** (`PollDeviceId`), falling back to **IP** if missing (`AppServiceProvider`). The route uses `throttle:poll-vote` middleware.
 - **Login**: **5 failed attempts** per `email|IP` key before lockout; successful login clears the counter (`LoginRequest` + `RateLimiter`).
 - **Email verification**: Resend and verify routes use **`throttle:6,1`** (6 requests per minute).
 
 ### Concurrency and data integrity
 
-- **Asynchronous vote processing on high-priority queue**: `POST /polls/{poll}/vote` now returns quickly with **202 Accepted** and dispatches `ProcessPollVote` to the **`high`** queue. This keeps web request latency low under traffic spikes.
-- **Guest-scoped unique queue jobs**: vote processing reconstructs guest identity from `userId + ip + userAgent`, and `ProcessPollVote` uses `ShouldBeUnique` so only one in-flight vote job per poll+guest identity is queued for a short TTL window.
-- **Database uniqueness**: `votes` has a **unique index on `(poll_id, guest_id)`** so one vote per guest per poll is enforced at the database even if application logic were bypassed.
-- **Transactions**: Vote creation and `poll_options.votes_count` increment run inside a **single `DB::transaction`**.
+- **Synchronous vote handling with layering**: `POST /polls/{poll}/vote` runs **`CastPollVoteAction`** in the HTTP request—**validation → cache lock keyed by poll+guest → `DB::transaction` with row lock**. Responds **`201`** with vote counts when successful. This keeps correctness obvious and leverages the DB for the authoritative story.
+- **Optional queued pattern**: **`ProcessPollVote`** (`ShouldQueue` + `ShouldBeUnique`) is included for workloads where you delegate writes to workers and respond **202**; it is **not** wired from `PublicPollController` in the default codebase (see **`docs/building-a-high-traffic-polling-app.md`** if you reconnect it).
+- **Database uniqueness**: `votes` has a **unique index on `(poll_id, guest_id)`** so one vote per guest per poll is enforced even if application logic races.
+- **Transactions**: Vote creation and `poll_options.votes_count` increment run inside a **single `DB::transaction`** (with **`lockForUpdate()`** on the chosen option row in the synchronous path).
 
 ### High-traffic vote UX optimization
 
 - **Immediate selection on click**: frontend marks the selected option immediately (optimistic UI) before waiting for the API response.
 - **Response-driven optimistic counts**: the vote API responds with optimistic `total_votes` and `options[].votes_count` (`+1` for selected option), so percentages and bars update right away.
-- **Real-time reconciliation**: `votes.updated` broadcasts keep all clients in sync once the queued job commits.
+- **Real-time reconciliation**: `votes.updated` broadcasts keep watchers in sync; with **`VoteCountUpdated` implementing `ShouldBroadcastNow`**, pushes run during the HTTP response path (swap to **`ShouldBroadcast`** + workers if you need broadcaster work off-thread).
 
 ### Caching
 
@@ -41,7 +41,7 @@ This app includes several patterns that help under load and when running multipl
 
 ### Real-time updates without polling the API
 
-- **`VoteCountUpdated`** implements **`ShouldBroadcast`** and publishes to channel `polls.{pollId}` as event `votes.updated`. Clients update via **Laravel Echo + Pusher** instead of hammering HTTP for counts. In production, **queue workers** process broadcast jobs (default queue is `database` in `.env.example`; **Redis** is typical for higher throughput).
+- **`VoteCountUpdated`** implements **`ShouldBroadcastNow`** and publishes to channel `polls.{pollId}` as event `votes.updated`. Clients update via **Laravel Echo + Pusher**. If you switch to **`ShouldBroadcast`**, run **queue workers** for broadcast dispatch (`.env.example` defaults to **database** queue; **Redis** is typical under load).
 
 ### Front-end performance
 
@@ -131,7 +131,7 @@ Start these processes in separate terminals:
    npm run dev
    ```
 
-3. Queue worker (required for vote processing and broadcasts):
+3. Queue worker (required only if you use **queued jobs** or **`ShouldBroadcast`** instead of **`ShouldBroadcastNow`**):
 
    ```bash
    php artisan queue:work --queue=high,default
